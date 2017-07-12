@@ -74,9 +74,10 @@ def get_last_log(logs):
 
 
 def log_was_analyzed(log):
-    with open('last_log_done.txt') as f:
-        if f.readline() == log:
-            return True
+    if os.path.isfile('last_log_done.txt'):
+        with open('last_log_done.txt') as f:
+            if f.readline() == log:
+                return True
     return False
 
 
