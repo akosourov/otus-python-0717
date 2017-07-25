@@ -255,94 +255,6 @@ class ClientIDsField(Field):
             return True
         return False
 
-
-class ClientsInterestsRequest(object):
-    client_ids = ClientIDsField(required=True)
-    date = DateField(required=False, nullable=True)
-
-    _fnames = ('client_ids', 'date')
-
-    def __init__(self, rawrequest, ctx):
-        self.ctx = ctx
-        body = rawrequest['body']
-        arguments = body['arguments']
-        for fname in self._fnames:
-            value = arguments.get(fname)
-            field = getattr(ClientsInterestsRequest, fname)
-            field.setvalue(value)
-            setattr(self, fname, field.getvalue())
-
-    def validate(self):
-        for fname in self._fnames:
-            field = getattr(ClientsInterestsRequest, fname)
-            if not field.validate():
-                return False
-        return True
-
-    def getresult(self):
-        res = {cl: ['interest1', 'interest2'] for cl in self.client_ids}
-        self.ctx['nclients'] = len(res)
-        return res
-
-
-class OnlineScoreRequest(object):
-    first_name = CharField(required=False, nullable=True)
-    last_name = CharField(required=False, nullable=True)
-    email = EmailField(required=False, nullable=True)
-    phone = PhoneField(required=False, nullable=True)
-    birthday = BirthDayField(required=False, nullable=True)
-    gender = GenderField(required=False, nullable=True)
-
-    _fnames = ('first_name', 'last_name', 'email', 'phone', 'birthday', 'gender')
-
-    _valid_pairs = (
-        ('phone', 'email'),
-        ('first_name', 'last_name'),
-        ('gender', 'birthday')
-    )
-
-    def __init__(self, rawrequest, ctx):
-        self.ctx = ctx
-        self.rawrequest= rawrequest
-        body = rawrequest['body']
-        arguments = body['arguments']
-        for fname in self._fnames:
-            value = arguments.get(fname)
-            field = getattr(OnlineScoreRequest, fname)
-            field.setvalue(value)
-            setattr(self, fname, field.getvalue())
-
-    def validate(self):
-        self.ctx['has'] = []
-        all_fields_are_valid = True
-        for fname in OnlineScoreRequest._fnames:
-            field = getattr(OnlineScoreRequest, fname)
-            if not field.validate():
-                all_fields_are_valid = False
-            if not field.is_null():
-                self.ctx['has'].append(fname)
-
-        pair_is_valid = False
-        for pair in OnlineScoreRequest._valid_pairs:
-            field1 = getattr(OnlineScoreRequest, pair[0])
-            field2 = getattr(OnlineScoreRequest, pair[1])
-            if not field1.is_null() and not field2.is_null():
-                pair_is_valid = True
-                break
-
-        return all_fields_are_valid and pair_is_valid 
-
-    @property
-    def is_admin(self):
-        return self.rawrequest['body'].get('login') == ADMIN_LOGIN
-
-    def getresult(self):
-        if self.is_admin:
-            return {'score': 42}, OK
-        else:
-            return {'score': 1}, OK
-
-
 class MethodRequest(object):
     account = CharField(required=False, nullable=True)
     login = CharField(required=True, nullable=True)
@@ -365,14 +277,113 @@ class MethodRequest(object):
         return self.login == ADMIN_LOGIN
 
     def validate(self):
+        ok = True
+        self.invalid_fields = []
         for fname in MethodRequest._fnames:
             field = getattr(MethodRequest, fname)
             if not field.validate():
-                return False
-        return True
+                ok = False
+                self.invalid_fields.append(fname)
+        return ok, self.invalid_fields
 
     def check_auth(self):
         return check_auth(self)
+
+
+
+class ClientsInterestsRequest(MethodRequest):
+    client_ids = ClientIDsField(required=True)
+    date = DateField(required=False, nullable=True)
+
+    _fnames = ('client_ids', 'date')
+
+    def __init__(self, rawrequest, ctx):
+        self.ctx = ctx
+        body = rawrequest['body']
+        arguments = body['arguments']
+        for fname in self._fnames:
+            value = arguments.get(fname)
+            field = getattr(ClientsInterestsRequest, fname)
+            field.setvalue(value)
+            setattr(self, fname, field.getvalue())
+
+    def validate(self):
+        ok = True
+        self.invalid_fields = []
+        for fname in self._fnames:
+            field = getattr(ClientsInterestsRequest, fname)
+            if not field.validate():
+                ok = False
+                self.invalid_fields.append(fname)
+        return ok, self.invalid_fields
+
+    def getresult(self):
+        validation = self.validate()
+        if not validation[0]:
+            return ERRORS[INVALID_REQUEST] + ': ' + str(validation[1]), INVALID_REQUEST
+
+        res = {cl: ['interest1', 'interest2'] for cl in self.client_ids}
+        self.ctx['nclients'] = len(res)
+        return res, OK
+
+
+class OnlineScoreRequest(MethodRequest):
+    first_name = CharField(required=False, nullable=True)
+    last_name = CharField(required=False, nullable=True)
+    email = EmailField(required=False, nullable=True)
+    phone = PhoneField(required=False, nullable=True)
+    birthday = BirthDayField(required=False, nullable=True)
+    gender = GenderField(required=False, nullable=True)
+
+    _fnames = ('first_name', 'last_name', 'email', 'phone', 'birthday', 'gender')
+
+    _valid_pairs = (
+        ('phone', 'email'),
+        ('first_name', 'last_name'),
+        ('gender', 'birthday')
+    )
+
+    def __init__(self, rawrequest, ctx):
+        super(OnlineScoreRequest, self).__init__(rawrequest)
+        self.ctx = ctx
+        body = rawrequest['body']
+        arguments = body['arguments']
+        for fname in self._fnames:
+            value = arguments.get(fname)
+            field = getattr(OnlineScoreRequest, fname)
+            field.setvalue(value)
+            setattr(self, fname, field.getvalue())
+
+    def validate(self):
+        self.ctx['has'] = []
+        self.invalid_fields = []
+        all_fields_are_valid = True
+        for fname in OnlineScoreRequest._fnames:
+            field = getattr(OnlineScoreRequest, fname)
+            if not field.validate():
+                all_fields_are_valid = False
+                self.invalid_fields.append(fname)
+            if not field.is_null():
+                self.ctx['has'].append(fname)
+
+        pair_is_valid = False
+        for pair in OnlineScoreRequest._valid_pairs:
+            field1 = getattr(OnlineScoreRequest, pair[0])
+            field2 = getattr(OnlineScoreRequest, pair[1])
+            if not field1.is_null() and not field2.is_null():
+                pair_is_valid = True
+                break
+
+        return all_fields_are_valid and pair_is_valid, self.invalid_fields
+
+    def getresult(self):
+        validation = self.validate()
+        if not validation[0]:
+            return ERRORS[INVALID_REQUEST] + ': ' + str(validation[1]), INVALID_REQUEST
+        if self.is_admin:
+            return {'score': 42}, OK
+        else:
+            return {'score': random.randrange(0, 100)}, OK
 
 
 def check_auth(request):
@@ -386,31 +397,26 @@ def check_auth(request):
 
 
 def method_handler(request, ctx):
-    response, code = None, None
+    # response, code = None, None
+
     req = MethodRequest(request)
 
-    if not req.validate():
-        return ERRORS[INVALID_REQUEST], INVALID_REQUEST
+    validation = req.validate()
+    if not validation[0]:
+        return ERRORS[INVALID_REQUEST] + ': ' + str(validation[1]), INVALID_REQUEST
     if not req.check_auth():
         return ERRORS[FORBIDDEN], FORBIDDEN
 
     if req.method == 'online_score':
         score_req = OnlineScoreRequest(request, ctx)
-        if not score_req.validate():
-            return ERRORS[INVALID_REQUEST], INVALID_REQUEST
-        else:
-            res = score_req.getresult()
-            return res[0], res[1]
-        
+        res = score_req.getresult()
+        return res[0], res[1]      
     elif req.method == 'clients_interests':
         clients_req = ClientsInterestsRequest(request, ctx)
-        if not clients_req.validate():
-            return ERRORS[INVALID_REQUEST], INVALID_REQUEST
-        else:
-            res = clients_req.getresult()
-            return res, OK
+        res = clients_req.getresult()
+        return res[0], res[1]
 
-    return response, code
+    return ERRORS[BAD_REQUEST], BAD_REQUEST
 
 
 class MainHTTPHandler(BaseHTTPRequestHandler):
@@ -427,8 +433,8 @@ class MainHTTPHandler(BaseHTTPRequestHandler):
         request = None
         try:
             data_string = self.rfile.read(int(self.headers['Content-Length']))
-            request = json.loads(data_string)
-        except:
+            request = json.loads(data_string, 'utf8')
+        except Exception as e:
             code = BAD_REQUEST
 
         if request:
