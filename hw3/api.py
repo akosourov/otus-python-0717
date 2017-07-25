@@ -149,15 +149,15 @@ class Field(object):
     def validate_req_null(self):
         return self.validate_required() and self.validate_nullable()
 
-    def validate_type(self):
-        return True
-
     def validate(self):
-        return self.validate_req_null() and self.validate_type()
+        return self.validate_req_null()
 
 
 class CharField(Field):
     def validate(self):
+        if not self.validate_req_null():
+            return False
+
         if self.is_empty():
             return True
         value = self.getvalue()
@@ -168,6 +168,8 @@ class CharField(Field):
 
 class ArgumentsField(Field):
     def validate(self):
+        if not self.validate_req_null():
+            return False
         if self.is_empty():
             return True
         if isinstance(self.getvalue(), dict):
@@ -179,7 +181,7 @@ class EmailField(CharField):
     def validate(self):
         super(EmailField, self).validate()
         value = self.getvalue()
-        if self.is_null or '@' in value:
+        if self.is_null() or '@' in value:
             return True
         return False
 
@@ -190,7 +192,7 @@ class PhoneField(Field):
             return True
 
         value = self.getvalue()
-        if isinstance(value, str) or isinstance(value, int):
+        if isinstance(value, (str, int, long)):
             value = str(value)
             if value == '':
                 return True
@@ -203,7 +205,7 @@ class DateField(Field):
     def validate(self):
         if self.is_empty():
             return True
-        value = this.getvalue()
+        value = self.getvalue()
         if isinstance(value, str):
             try:
                 datetime.datetime.strptime(value, '%d.%m.%Y')
@@ -217,14 +219,14 @@ class BirthDayField(Field):
     def validate(self):
         if self.is_empty():
             return True
-        value = this.getvalue()
+        value = self.getvalue()
         if isinstance(value, str):
             try:
                 date = datetime.datetime.strptime(value, '%d.%m.%Y')
             except ValueError:
                 return False
-
-            years = (datetime.datetime.today() - date)/float(365)
+            days = (datetime.datetime.today() - date).days
+            years = days/float(365)
             if 0 <= years <= 70:
                 return True
 
@@ -245,7 +247,7 @@ class ClientIDsField(Field):
     def validate(self):
         if self.is_empty():
             return False
-        value = this.getvalue()
+        value = self.getvalue()
         if isinstance(value, list) and len(value) > 0:
             for el in value:
                 if not isinstance(el, int):
@@ -263,8 +265,9 @@ class ClientsInterestsRequest(object):
     def __init__(self, rawrequest, ctx):
         self.ctx = ctx
         body = rawrequest['body']
+        arguments = body['arguments']
         for fname in self._fnames:
-            value = body.get(fname)
+            value = arguments.get(fname)
             field = getattr(ClientsInterestsRequest, fname)
             field.setvalue(value)
             setattr(self, fname, field.getvalue())
@@ -300,6 +303,7 @@ class OnlineScoreRequest(object):
 
     def __init__(self, rawrequest, ctx):
         self.ctx = ctx
+        self.rawrequest= rawrequest
         body = rawrequest['body']
         arguments = body['arguments']
         for fname in self._fnames:
@@ -330,7 +334,7 @@ class OnlineScoreRequest(object):
 
     @property
     def is_admin(self):
-        return False
+        return self.rawrequest['body'].get('login') == ADMIN_LOGIN
 
     def getresult(self):
         if self.is_admin:
