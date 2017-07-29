@@ -119,79 +119,71 @@ GENDERS = {
 
 
 class Field(object):
+    __metaclass__ = abc.ABCMeta
+
     def __init__(self, required=True, nullable=False):
         self.required = required
         self.nullable = nullable
-        self.value = None
+        self.name = None
 
-    def setvalue(self, value):
-        self.value = value
+    @abc.abstractmethod
+    def validate_value(self, value):
+        return True or False
 
-    def getvalue(self):
-        return self.value
+    def parse_value(self, value):
+        return value
 
-    def is_empty(self):
-        return self.value is None
-
-    def is_null(self):
-        return self.is_empty() or self.value == ''
-
-    def validate_required(self):
-        if self.required and self.is_empty():
+    def validate_req_null(self, value):
+        if self.required and value is None:
+            return False
+        if not self.nullable and not value:
             return False
         return True
-
-    def validate_nullable(self):
-        if not self.nullable and self.is_null():
-            return False
-        return True
-
-    def validate_req_null(self):
-        return self.validate_required() and self.validate_nullable()
-
-    def validate(self):
-        return self.validate_req_null()
 
 
 class CharField(Field):
-    def validate(self):
-        if not self.validate_req_null():
-            return False
-
-        if self.is_empty():
+    def validate_value(self, value):
+        if not self.required and not value:
             return True
-        value = self.getvalue()
-        if isinstance(value, str):
+        if isinstance(value, (str, unicode)):
             return True
         return False
+
+    def parse_value(self, value):
+        if isinstance(value, unicode) or not value:
+            return value
+        else:
+            return value.decode('utf-8')
 
 
 class ArgumentsField(Field):
-    def validate(self):
-        if not self.validate_req_null():
-            return False
-        if self.is_empty():
+    def validate_value(self, value):
+        if not self.required and not value:
             return True
-        if isinstance(self.getvalue(), dict):
+        if isinstance(value, dict):
             return True
         return False
+
+    def parse_value(self, value):
+        return value
 
 
 class EmailField(CharField):
-    def validate(self):
-        super(EmailField, self).validate()
-        value = self.getvalue()
-        if self.is_null() or '@' in value:
+    def validate_value(self, value):
+        if not self.required and not value:
+            return True
+        if not super(EmailField, self).validate_value(value):
+            return False
+        value = super(EmailField, self).parse_value(value)
+        if value and '@' in value:
             return True
         return False
-
+    
 
 class PhoneField(Field):
-    def validate(self):
-        if self.is_empty():
+    def validate_value(self, value):
+        if not self.required and not value:
             return True
-
-        value = self.getvalue()
         if isinstance(value, (str, int, long)):
             value = str(value)
             if value == '':
@@ -199,135 +191,127 @@ class PhoneField(Field):
             if len(value) == 11 and value[0] == '7' and value.isdigit():
                 return True
         return False
+        
 
 class DateField(Field):
     # DD.MM.YYYY
-    def validate(self):
-        if self.is_empty():
+    def validate_value(self, value):
+        if not self.required and not value:
             return True
-        value = self.getvalue()
-        if isinstance(value, str):
+        if isinstance(value, basestring):
             try:
-                datetime.datetime.strptime(value, '%d.%m.%Y')
+                datetime.datetime.strptime(str(value), '%d.%m.%Y')
                 return True
             except ValueError:
                 pass
         return False
 
+    def parse_value(self, value):
+        return datetime.datetime.strptime(str(value), '%d.%m.%Y') if value else None
 
-class BirthDayField(Field):
-    def validate(self):
-        if self.is_empty():
+
+class BirthDayField(DateField):
+    def validate_value(self, value):
+        if not self.required and not value:
             return True
-        value = self.getvalue()
-        if isinstance(value, str):
-            try:
-                date = datetime.datetime.strptime(value, '%d.%m.%Y')
-            except ValueError:
-                return False
+        if super(BirthDayField, self).validate_value(value):
+            date = self.parse_value(value)
             days = (datetime.datetime.today() - date).days
             years = days/float(365)
             if 0 <= years <= 70:
                 return True
-
         return False
 
 
 class GenderField(Field):
-    def validate(self):
-        if self.is_empty():
+    def validate_value(self, value):
+        if not self.required and not value:
             return True
-        value = self.getvalue()
-        if value in (0, 1, 2):
+        if value in GENDERS:
             return True
         return False
 
 
 class ClientIDsField(Field):
-    def validate(self):
-        if self.is_empty():
-            return False
-        value = self.getvalue()
-        if isinstance(value, list) and len(value) > 0:
-            for el in value:
-                if not isinstance(el, int):
-                    return False
+    def validate_value(self, value):
+        if not self.required and not value:
             return True
+        if isinstance(value, list):
+            if all(isinstance(c, int) for c in value):
+                return True
         return False
 
-class MethodRequest(object):
+
+class RequestMeta(type):
+    def __new__(mcs, name, bases, dct):
+        fields = []
+        for k, v in dct.items():
+            if isinstance(v, Field):
+                v.name = k
+                fields.append(v)
+        cls = type.__new__(mcs, name, bases, dct)
+        cls.fields = fields
+        return cls
+
+
+class Request(object):
+    __metaclass__ = RequestMeta   # creates cls.fields = [field1, ...]
+
+    def __init__(self, rawrequest, ctx):
+        self.rawrequest = rawrequest
+        self.ctx = ctx
+        self.validation_done = False
+        self.invalid_fields = []
+        self.validate()
+
+    def validate(self):
+        for field in self.fields:
+            value = self.rawrequest.get(field.name)
+            if field.validate_req_null(value) and field.validate_value(value):
+                parsed_value = field.parse_value(value)
+                setattr(self, field.name, parsed_value)
+            else:
+                self.invalid_fields.append(field.name)
+        self.validation_done = True
+
+    def is_valid(self):
+        if not self.validation_done:
+            self.validate()
+        return not self.invalid_fields
+
+    def validation_errors(self):
+        return ', '.join(self.invalid_fields)
+
+
+class MethodRequest(Request):
     account = CharField(required=False, nullable=True)
     login = CharField(required=True, nullable=True)
     token = CharField(required=True, nullable=True)
     arguments = ArgumentsField(required=True, nullable=True)
     method = CharField(required=True, nullable=False)
 
-    _fnames = ('account', 'login', 'token', 'arguments', 'method')
-
-    def __init__(self, rawrequest):
-        body = rawrequest['body']
-        for fname in MethodRequest._fnames:
-            value = body.get(fname)
-            field = getattr(MethodRequest, fname)
-            field.setvalue(value)
-            setattr(self, fname, field.getvalue())
-
     @property
     def is_admin(self):
         return self.login == ADMIN_LOGIN
-
-    def validate(self):
-        ok = True
-        self.invalid_fields = []
-        for fname in MethodRequest._fnames:
-            field = getattr(MethodRequest, fname)
-            if not field.validate():
-                ok = False
-                self.invalid_fields.append(fname)
-        return ok, self.invalid_fields
 
     def check_auth(self):
         return check_auth(self)
 
 
-
-class ClientsInterestsRequest(MethodRequest):
+class ClientsInterestsRequest(Request):
     client_ids = ClientIDsField(required=True)
     date = DateField(required=False, nullable=True)
 
-    _fnames = ('client_ids', 'date')
-
-    def __init__(self, rawrequest, ctx):
-        self.ctx = ctx
-        body = rawrequest['body']
-        arguments = body['arguments']
-        for fname in self._fnames:
-            value = arguments.get(fname)
-            field = getattr(ClientsInterestsRequest, fname)
-            field.setvalue(value)
-            setattr(self, fname, field.getvalue())
-
-    def validate(self):
-        ok = True
-        self.invalid_fields = []
-        for fname in self._fnames:
-            field = getattr(ClientsInterestsRequest, fname)
-            if not field.validate():
-                ok = False
-                self.invalid_fields.append(fname)
-        return ok, self.invalid_fields
-
     def getresult(self):
-        validation = self.validate()
-        if not validation[0]:
-            return ERRORS[INVALID_REQUEST] + ': ' + str(validation[1]), INVALID_REQUEST
+        if not self.is_valid():
+            return self.validation_errors(), INVALID_REQUEST
 
         res = {cl: ['interest1', 'interest2'] for cl in self.client_ids}
         self.ctx['nclients'] = len(res)
         return res, OK
 
 
-class OnlineScoreRequest(MethodRequest):
+class OnlineScoreRequest(Request):
     first_name = CharField(required=False, nullable=True)
     last_name = CharField(required=False, nullable=True)
     email = EmailField(required=False, nullable=True)
@@ -335,52 +319,41 @@ class OnlineScoreRequest(MethodRequest):
     birthday = BirthDayField(required=False, nullable=True)
     gender = GenderField(required=False, nullable=True)
 
-    _fnames = ('first_name', 'last_name', 'email', 'phone', 'birthday', 'gender')
-
     _valid_pairs = (
         ('phone', 'email'),
         ('first_name', 'last_name'),
         ('gender', 'birthday')
     )
 
-    def __init__(self, rawrequest, ctx):
-        super(OnlineScoreRequest, self).__init__(rawrequest)
-        self.ctx = ctx
-        body = rawrequest['body']
-        arguments = body['arguments']
-        for fname in self._fnames:
-            value = arguments.get(fname)
-            field = getattr(OnlineScoreRequest, fname)
-            field.setvalue(value)
-            setattr(self, fname, field.getvalue())
+    def __init__(self, rawrequest, ctx, methodrequest):
+        super(OnlineScoreRequest, self).__init__(rawrequest, ctx)
+        self.methodrequest = methodrequest
 
     def validate(self):
-        self.ctx['has'] = []
-        self.invalid_fields = []
-        all_fields_are_valid = True
-        for fname in OnlineScoreRequest._fnames:
-            field = getattr(OnlineScoreRequest, fname)
-            if not field.validate():
-                all_fields_are_valid = False
-                self.invalid_fields.append(fname)
-            if not field.is_null():
-                self.ctx['has'].append(fname)
+        super(OnlineScoreRequest, self).validate()
+        if not self.invalid_fields:
+            self.ctx['has'] = []
+            for field in self.__class__.fields:
+                value = self.rawrequest.get(field.name)
+                if not field.validate_req_null(value):
+                    self.invalid_fields.append(field.name)
+                if value is not None:
+                    self.ctx['has'].append(field.name)
 
-        pair_is_valid = False
-        for pair in OnlineScoreRequest._valid_pairs:
-            field1 = getattr(OnlineScoreRequest, pair[0])
-            field2 = getattr(OnlineScoreRequest, pair[1])
-            if not field1.is_null() and not field2.is_null():
-                pair_is_valid = True
-                break
-
-        return all_fields_are_valid and pair_is_valid, self.invalid_fields
+            has_valid_pair = False
+            for pair in self._valid_pairs:
+                value1 = getattr(self, pair[0])
+                value2 = getattr(self, pair[1])
+                if value1 is not None and value2 is not None:
+                    has_valid_pair = True
+            if not has_valid_pair:
+                self.invalid_fields.append(str(self._valid_pairs[0]))
+            self.validation_done = True
 
     def getresult(self):
-        validation = self.validate()
-        if not validation[0]:
-            return ERRORS[INVALID_REQUEST] + ': ' + str(validation[1]), INVALID_REQUEST
-        if self.is_admin:
+        if not self.is_valid():
+            return self.validation_errors(), INVALID_REQUEST
+        if self.methodrequest.is_admin:
             return {'score': 42}, OK
         else:
             return {'score': random.randrange(0, 100)}, OK
@@ -397,26 +370,23 @@ def check_auth(request):
 
 
 def method_handler(request, ctx):
-    # response, code = None, None
+    req = MethodRequest(request['body'], ctx)
 
-    req = MethodRequest(request)
-
-    validation = req.validate()
-    if not validation[0]:
-        return ERRORS[INVALID_REQUEST] + ': ' + str(validation[1]), INVALID_REQUEST
+    if not req.is_valid():
+        return req.validation_errors(), INVALID_REQUEST
     if not req.check_auth():
-        return ERRORS[FORBIDDEN], FORBIDDEN
+        return None, FORBIDDEN
 
     if req.method == 'online_score':
-        score_req = OnlineScoreRequest(request, ctx)
-        res = score_req.getresult()
-        return res[0], res[1]      
+        score_req = OnlineScoreRequest(request['body']['arguments'], ctx, req)
+        resp, code = score_req.getresult()
+        return resp, code
     elif req.method == 'clients_interests':
-        clients_req = ClientsInterestsRequest(request, ctx)
-        res = clients_req.getresult()
-        return res[0], res[1]
+        clients_req = ClientsInterestsRequest(request['body']['arguments'], ctx)
+        resp, code = clients_req.getresult()
+        return resp, code
 
-    return ERRORS[BAD_REQUEST], BAD_REQUEST
+    return None, BAD_REQUEST
 
 
 class MainHTTPHandler(BaseHTTPRequestHandler):
