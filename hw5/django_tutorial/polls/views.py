@@ -2,13 +2,13 @@
 from __future__ import unicode_literals
 
 from django.shortcuts import render, get_object_or_404
-from django.http import HttpResponse, Http404, HttpResponseRedirect
+from django.http import HttpResponseRedirect
 from django.urls import reverse
+from django.utils import timezone
 from django.views import generic
+from django.views.decorators.http import require_POST
 
 from .models import Question, Choice
-
-from django.utils import timezone
 
 
 class IndexView(generic.ListView):
@@ -39,12 +39,13 @@ class ResultsView(generic.DetailView):
     template_name = 'polls/results.html'
 
 
+@require_POST
 def vote(request, question_id):
     question = get_object_or_404(Question, pk=question_id)
     try:
         choice = question.choice_set.get(pk=request.POST['choice'])
     except (KeyError, Choice.DoesNotExist) as e:
-        return render(request, 'polls/detail.html', {
+        return render(request, reverse('poll:/detail'), {
             'question': question,
             'error_message': "Incorrect choice: " + str(e)
         })
