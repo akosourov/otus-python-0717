@@ -13,7 +13,11 @@
     </div>
     <div class="row">
         <div class="col col-md-1"></div>
-        <div class="col">Teg1, Teg2</div>
+        <div class="col">
+            {% for tag in question.tags.all %}
+                <a class="btn btn-primary" role="button" href="{% url 'askme:search_tag' tag.name %}">{{ tag.name }}</a>
+            {% endfor %}
+        </div>
         <div class="col col-md-2">
             <span>Avatar</span>
             <span>{{ question.user.username }}</span>
@@ -77,11 +81,6 @@
     }
 
     var csrftoken = getCookie('csrftoken');
-
-{#    var $answerUpBtns = $('.answer-vote-up').click(function () {#}
-{#        var answerId = $(this).attr('data-id');#}
-{#        voteUpAnswer(answerId)#}
-{#    });#}
 
     function voteUpAnswer(answerId, elem) {
         $.post({

@@ -34,14 +34,12 @@ def ask(request):
             question = Question.objects.create(**quest_params)
 
             if cd.get('tags'):
-                tags = cd['tags'].split(',')
-                new_tags = []
-                for tag in tags:
-                    tag = tag.strip()
-                    if not Tag.objects.filter(name=tag).exists():
-                        new_tag = Tag.objects.create(name=tag)
-                        new_tags.append(new_tag)
-                question.tags.add(*new_tags)
+                tag_names = cd['tags']
+                tags = []
+                for tag_name in tag_names:
+                    tag, _ = Tag.objects.get_or_create(name=tag_name)
+                    tags.append(tag)
+                question.tags.add(*tags)
             return HttpResponseRedirect('/')
     else:
         # Создаем пустую форму Question и отдаем ее в шаблон
@@ -92,6 +90,27 @@ def signup(request):
     else:
         user_form = UserProfileForm()
     return render(request, 'askme/signup.html', {'form': user_form})
+
+
+def search_tag(request, tag_name):
+    questions = []
+    tag = Tag.objects.filter(name=tag_name).first()
+    if tag:
+        questions = tag.question_set.all()
+    return render(request, 'askme/search.html', {
+        'questions': questions,
+        'head_title': 'Tag results',
+        'search_query': 'tag:{}'.format(tag_name)
+    })
+
+
+@require_safe
+def search(request):
+    query = request.GET.get('q')
+    return render(request, 'askme/search.html', {
+        'questions': [],
+        'head_title': 'Search results'
+    })
 
 
 @require_http_methods('POST, GET')
