@@ -1,0 +1,28 @@
+{% extends "askme/base.html" %}
+{% block content %}
+    <h4>New questions | Hot questions</h4>
+    {% for question in questions %}
+        <div class="row">
+            <div class="col">
+                <h6>-x-</h6>
+                <p>Votes</p>
+            </div>
+            <div class="col">
+                <h6>{{ question.answer_set.count }}</h6>
+                <p>Answers</p>
+            </div>
+            <div class="col-sm-4">
+                <a href="{% url 'askme:question' question.slug %}">{{ question.title }}</a>
+{#                <h6>{{ question.title }}</h6>#}
+                <span>teg1</span>
+                <span>teg2</span>
+            </div>
+            <div class="col col-sm-4">
+                <span>Avatar</span>
+                <span>{{ question.user.username }}</span>
+                <p>Asked 10 min ago</p>
+            </div>
+        </div>
+        <hr>
+    {% endfor %}
+{% endblock content %}

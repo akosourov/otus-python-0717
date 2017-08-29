@@ -1,0 +1,10 @@
+{% extends "askme/base.html" %}
+
+{% block content %}
+    <h4>Ask a question</h4>
+    <form action="" method="post">
+        {% csrf_token %}
+        {{ form.as_p }}
+        <button type="submit" class="btn btn-primary">Ask</button>
+    </form>
+{% endblock %}

@@ -1,0 +1,110 @@
+{% extends "askme/base.html" %}
+
+{% block content %}
+{#  Вопрос  #}
+    <h4>{{ question.title }}</h4>
+    <div class="row">
+        <div class="col col-md-1">
+            <div>up</div>
+            <div>-x-</div>
+            <div>down</div>
+        </div>
+        <div class="col">{{ question.text }}</div>
+    </div>
+    <div class="row">
+        <div class="col col-md-1"></div>
+        <div class="col">Teg1, Teg2</div>
+        <div class="col col-md-2">
+            <span>Avatar</span>
+            <span>{{ question.user.username }}</span>
+        </div>
+    </div>
+    <hr>
+
+{#    Ответы  #}
+    {% for answer in answers %}
+        <div class="row">
+            <div class="col col-md-1">
+                <div class="answer-vote-up" onclick="voteUpAnswer({{ answer.pk }},this)">+</div>
+                <div class="answer-votes">{{ answer.get_sum_votes }}</div> {# todo вытащить данные пачкой #}
+                <div class="answer-vote-down" onclick="voteDownAnswer({{ answer.pk }},this)">-</div>
+            </div>
+            <div class="col">{{ answer.text }}</div>
+        </div>
+        <div class="row">
+            <div class="col col-md-1"></div>
+            <div class="col"></div>
+            <div class="col col-md-2">Avatar, {{ answer.user.username }}</div>
+        </div>
+        <hr>
+    {% endfor %}
+
+{#    Добавить ответ   #}
+    {% if user.is_authenticated %}
+        <h4>Your answer</h4>
+        <div class="row">
+            <div class="col col-md-1"></div>
+            <div class="col">
+                <form action="" method="post">
+                    {% csrf_token %}
+                    <div class="form-group">
+                        <label for="answerForm"></label>
+                        <textarea class="form-control" name="text" id="answerForm" rows="10"></textarea>
+                    </div>
+                    <button class="btn btn-primary" type="submit">Submit</button>
+                </form>
+            </div>
+        </div>
+    {% endif %}
+{% endblock %}
+
+{% block script %}
+<script>
+    function getCookie(name) {
+        var cookieValue = null;
+        if (document.cookie && document.cookie !== '') {
+            var cookies = document.cookie.split(';');
+            for (var i = 0; i < cookies.length; i++) {
+                var cookie = jQuery.trim(cookies[i]);
+                // Does this cookie string begin with the name we want?
+                if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                    cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                    break;
+                }
+            }
+        }
+        return cookieValue;
+    }
+
+    var csrftoken = getCookie('csrftoken');
+
+{#    var $answerUpBtns = $('.answer-vote-up').click(function () {#}
+{#        var answerId = $(this).attr('data-id');#}
+{#        voteUpAnswer(answerId)#}
+{#    });#}
+
+    function voteUpAnswer(answerId, elem) {
+        $.post({
+            url: '/api/answer/voteup/' + answerId + '/',
+            beforeSend: function(xhr) {
+                xhr.setRequestHeader("X-CSRFToken", csrftoken);
+            },
+            success: function (data) {
+                $(elem).siblings('.answer-votes').text(data);
+            }
+        });
+    }
+
+    function voteDownAnswer(answerId, elem) {
+        $.post({
+            url: '/api/answer/votedown/' + answerId + '/',
+            beforeSend: function(xhr) {
+                xhr.setRequestHeader("X-CSRFToken", csrftoken);
+            },
+            success: function (data) {
+                $(elem).siblings('.answer-votes').text(data);
+            }
+        });
+    }
+</script>
+{% endblock %}
