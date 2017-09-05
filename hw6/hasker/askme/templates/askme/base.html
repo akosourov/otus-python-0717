@@ -43,8 +43,12 @@
                     <a class="btn btn-primary" role="button" href="{% url 'askme:ask' %}">Ask</a>
                 {% endif %}
                 <h4>Trending</h4>
-                <div>How to otus</div>
-                <div>How to perl</div>
+                {% for top in top_questions %}
+                    <p>
+                        <a class="btn btn-primary" role="button" href="{% url 'askme:question' top.slug %}">{{ top.votes }}</a>
+                        <span>{{ top.title }}</span>
+                    </p>
+                {% endfor %}
             </div>
         </div>
     </div>

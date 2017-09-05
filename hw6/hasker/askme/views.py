@@ -4,20 +4,31 @@ from __future__ import unicode_literals
 from django.shortcuts import render, get_object_or_404
 from django.http import HttpResponse, HttpResponseRedirect, HttpResponseBadRequest
 from django.urls import reverse
+from django.core.paginator import Paginator, PageNotAnInteger, EmptyPage
 from django.views.decorators.http import require_POST, require_safe, require_http_methods
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.models import User
 
 from .forms import QuestionForm, UserProfileForm, LoginForm
-from .models import Question, Tag, AnswerUserVote, Answer
+from .models import Question, Tag, Answer
 
 
+@require_safe
 def index(request):
-    # todo Сортировка, пагинация
-    top_questions = Question.objects.all()
+    # todo пагинация
+    questions_list = Question.objects.all().order_by('-date_pub', '-votes')
+    paginator = Paginator(questions_list, 20)
+
+    page = request.GET.get('page')
+    try:
+        questions = paginator.page(page)
+    except PageNotAnInteger:
+        questions = paginator.page(1)
+    except EmptyPage:
+        questions = paginator.page(paginator.num_pages)
+
     return render(request, 'askme/index.html', {
-        'questions': top_questions,
-        'user': request.user
+        'questions': questions
     })
 
 
@@ -29,7 +40,7 @@ def ask(request):
             quest_params = {
                 'title': cd['title'],
                 'text': cd['text'],
-                'user_id': 1
+                'user_id': request.user.pk
             }
             question = Question.objects.create(**quest_params)
 
@@ -62,9 +73,19 @@ def question_detail(request, slug):
                 # todo send email to author of question
                 return HttpResponseRedirect(reverse('askme:question', args=(slug,)))
 
+    answer_list = question.answer_set.all().order_by('-votes')
+    paginator = Paginator(answer_list, 30)
+
+    page = request.GET.get('page')
+    try:
+        answers = paginator.page(page)
+    except PageNotAnInteger:
+        answers = paginator.page(1)
+    except EmptyPage:
+        answers = paginator.page(paginator.num_pages)
     return render(request, 'askme/question.html', {
         'question': question,
-        'answers': question.answer_set.all()  # todo пагинация
+        'answers': answers
     })
 
 
@@ -138,35 +159,69 @@ def logout_view(request):
     return HttpResponseRedirect(reverse('askme:index'))
 
 
+def answer_vote(request, answer_id, to_up):
+    if not request.user.is_authenticated:
+        return HttpResponseBadRequest()
+    answer = Answer.objects.filter(pk=answer_id).first()
+    if not answer:
+        return HttpResponseBadRequest()
+
+    user_id = request.user.pk
+    if to_up:
+        answer.vote_up(user_id)
+    else:
+        answer.vote_down(user_id)
+
+    # Возвращаем общее кол-во голосов
+    return HttpResponse(answer.votes)
+
+
+@require_POST
 def answer_vote_up(request, answer_id):
-    if request.user.is_authenticated:
-        user_id = request.user.pk
-        vote = AnswerUserVote.objects.filter(user=user_id, answer=answer_id).first()
-        if not vote:
-            AnswerUserVote.objects.create(user_id=user_id, answer_id=answer_id, value=1)
-        elif vote.value == -1:
-            vote.delete()
-
-        # Возвращаем общее кол-во голосов
-        answer = Answer.objects.get(pk=answer_id)
-        votes = answer.get_sum_votes()
-        return HttpResponse(votes)
-
-    return HttpResponseBadRequest()
+    return answer_vote(request, answer_id, to_up=True)
 
 
+@require_POST
 def answer_vote_down(request, answer_id):
-    if request.user.is_authenticated:
-        user_id = request.user.pk
-        vote = AnswerUserVote.objects.filter(user=user_id, answer=answer_id).first()
-        if not vote:
-            AnswerUserVote.objects.create(user_id=user_id, answer_id=answer_id, value=-1)
-        elif vote.value == 1:
-            vote.delete()
+    return answer_vote(request, answer_id, to_up=False)
 
-        # Возвращаем общее кол-во голосов
-        answer = Answer.objects.get(pk=answer_id)
-        votes = answer.get_sum_votes()
-        return HttpResponse(votes)
 
-    return HttpResponseBadRequest()
+def question_vote(request, question_id, to_up):
+    if not request.user.is_authenticated:
+        return HttpResponseBadRequest()
+    question = Question.objects.filter(pk=question_id).first()
+    if not question:
+        return HttpResponseBadRequest()
+
+    user_id = request.user.pk
+    if to_up:
+        question.vote_up(user_id)
+    else:
+        question.vote_down(user_id)
+
+    # Возвращаем общее кол-во голосов
+    return HttpResponse(question.votes)
+
+
+@require_POST
+def question_vote_up(request, question_id):
+    return question_vote(request, question_id, True)
+
+
+@require_POST
+def question_vote_down(request, question_id):
+    return question_vote(request, question_id, False)
+
+
+@require_POST
+def set_correct_answer(request, answer_id):
+    if not request.user.is_authenticated:
+        return HttpResponseBadRequest()
+
+    answer = Answer.objects.filter(pk=answer_id).first()
+    if not answer:
+        return HttpResponseBadRequest()
+
+    answer.question.correct_answer = answer
+    answer.question.save()
+    return HttpResponse(answer.question.correct_answer_id)

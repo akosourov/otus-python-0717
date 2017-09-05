@@ -5,9 +5,9 @@
     <h4>{{ question.title }}</h4>
     <div class="row">
         <div class="col col-md-1">
-            <div>up</div>
-            <div>-x-</div>
-            <div>down</div>
+            <div onclick="vote('question','up',{{ question.pk }},this)">+</div>
+            <div class="votes">{{ question.votes }}</div>
+            <div onclick="vote('question','down',{{ question.pk }},this)">-</div>
         </div>
         <div class="col">{{ question.text }}</div>
     </div>
@@ -29,9 +29,10 @@
     {% for answer in answers %}
         <div class="row">
             <div class="col col-md-1">
-                <div class="answer-vote-up" onclick="voteUpAnswer({{ answer.pk }},this)">+</div>
-                <div class="answer-votes">{{ answer.get_sum_votes }}</div> {# todo вытащить данные пачкой #}
-                <div class="answer-vote-down" onclick="voteDownAnswer({{ answer.pk }},this)">-</div>
+                <div class="answer-vote-up" onclick="vote('answer','up',{{ answer.pk }},this)">+</div>
+                <div class="votes">{{ answer.votes }}</div>
+                <div class="answer-vote-down" onclick="vote('answer','down',{{ answer.pk }},this)">-</div>
+                <div onclick="set_correct_answer({{ answer.pk }},this)">SET</div>
             </div>
             <div class="col">{{ answer.text }}</div>
         </div>
@@ -42,6 +43,8 @@
         </div>
         <hr>
     {% endfor %}
+
+    {% include "askme/paging.html" with list_page=answers %}
 
 {#    Добавить ответ   #}
     {% if user.is_authenticated %}
@@ -81,27 +84,40 @@
     }
 
     var csrftoken = getCookie('csrftoken');
+    var apiURL = {
+        answer: {
+            up: '/api/answer/voteup/',
+            down: '/api/answer/votedown/',
+            set_correct: '/api/answer/setcorrect/'
+        },
+        question: {
+            up: '/api/question/voteup/',
+            down: '/api/question/votedown/'
+        }
+    };
 
-    function voteUpAnswer(answerId, elem) {
+    function vote(subject, up_or_down, id, elem) {
+        var url = apiURL[subject][up_or_down] + id + '/';
         $.post({
-            url: '/api/answer/voteup/' + answerId + '/',
+            url: url,
             beforeSend: function(xhr) {
                 xhr.setRequestHeader("X-CSRFToken", csrftoken);
             },
             success: function (data) {
-                $(elem).siblings('.answer-votes').text(data);
+                $(elem).siblings('.votes').text(data);
             }
         });
     }
 
-    function voteDownAnswer(answerId, elem) {
+    function set_correct_answer(id, elem) {
+        var url = apiURL['answer']['set_correct'] + id + '/';
         $.post({
-            url: '/api/answer/votedown/' + answerId + '/',
+            url: url,
             beforeSend: function(xhr) {
                 xhr.setRequestHeader("X-CSRFToken", csrftoken);
             },
             success: function (data) {
-                $(elem).siblings('.answer-votes').text(data);
+                $(elem).text('TRUE');
             }
         });
     }
