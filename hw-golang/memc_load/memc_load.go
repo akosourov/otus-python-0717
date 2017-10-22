@@ -75,7 +75,7 @@ func main() {
 	}
 
 	mcs := createMemcClients(cfg)
-	jobs := make(chan string, 1000)
+	jobs := make(chan string, cfg.jobslen)
 	done := make(chan bool, cfg.workers)
 	for i := 0; i < cfg.workers; i++ {
 		go doJob(jobs, done, *mcs, cfg.dry)
