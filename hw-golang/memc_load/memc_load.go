@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"compress/gzip"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -11,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -19,41 +21,50 @@ import (
 	"github.com/golang/protobuf/proto"
 )
 
-type (
-	config struct {
-		dry     bool
-		workers int
-		jobslen int
-		logfile string
-		pattern string
-		idfa    string
-		gaid    string
-		adid    string
-		dvid    string
-	}
+type config struct {
+	dry       bool
+	workers   int
+	mcworkers int
+	jobslen   int
+	mcjobslen int
+	maxconn   int
+	logfile   string
+	pattern   string
+	idfa      string
+	gaid      string
+	adid      string
+	dvid      string
+}
 
-	userAppsLine struct {
-		devType string
-		devID   string
-		lat     float64
-		lon     float64
-		apps    []uint32
-	}
-)
+type userAppsLine struct {
+	devType string
+	devID   string
+	lat     float64
+	lon     float64
+	apps    []uint32
+}
 
-// socket read/write timeout for memcache client
+type mcJob struct {
+	mc     *memcache.Client
+	key    string
+	msgb   *[]byte
+}
+
+// socket read/write timeout for memcache clients
 const sockTimeOut = 200 * time.Millisecond
 
 var (
-	cfg              = config{}
-	processed uint64 = 0
-	errors    uint64 = 0
+	cfg               = config{}
+	processed  uint64 = 0
+	procErrors uint64 = 0
 )
 
 func init() {
-	flag.BoolVar(&cfg.dry, "dry", false, "Dry run")
-	flag.IntVar(&cfg.workers, "workers", 1, "Number of workers")
+	flag.IntVar(&cfg.workers, "workers", 3, "Number of workers")
+	flag.IntVar(&cfg.mcworkers, "mcworkers", 6, "Number of memcache workers")
 	flag.IntVar(&cfg.jobslen, "jobslen", 100, "Length of jobs (task) queue")
+	flag.IntVar(&cfg.mcjobslen, "mcjobslen", 300, "Length of memcache jobs queue")
+	flag.IntVar(&cfg.maxconn, "maxconn", cfg.mcworkers+1, "Length of jobs (task) queue")
 	flag.StringVar(&cfg.logfile, "log", "", "Output log to file")
 	flag.StringVar(&cfg.pattern, "pattern", "./test_data/*.tsv.gz", "File pattern to process")
 	flag.StringVar(&cfg.idfa, "idfa", "127.0.0.1:33013", "host:port to idfa memcached")
@@ -76,9 +87,16 @@ func main() {
 
 	mcs := createMemcClients(cfg)
 	jobs := make(chan string, cfg.jobslen)
-	done := make(chan bool, cfg.workers)
+	mcJobs := make(chan mcJob, cfg.mcjobslen)
+	psWG := sync.WaitGroup{}   // process workers
+	mcWG := sync.WaitGroup{}   // memcache workers
 	for i := 0; i < cfg.workers; i++ {
-		go doJob(jobs, done, *mcs, cfg.dry)
+		psWG.Add(1)
+		go psWorker(jobs, mcJobs, *mcs, &psWG)
+	}
+	for j := 0; j < cfg.mcworkers; j++ {
+		mcWG.Add(1)
+		go mcWorker(mcJobs, &mcWG)
 	}
 
 	// read files
@@ -92,41 +110,54 @@ func main() {
 		log.Fatalf("Couldn't get list of files: %v", err)
 	}
 
+	filesWG := sync.WaitGroup{}
 	for _, fn := range filenames {
-		// gunzip file
-		log.Printf("Processing file: %v", fn)
-		f, err := os.Open(fn)
-		if err != nil {
-			log.Printf("Couldn't open file: %v", err)
-			continue
-		}
-		reader, err := gzip.NewReader(f)
-		if err != nil {
-			log.Printf("Couldn't make reader: %v", err)
-		}
+		filesWG.Add(1)
+		go func(fn string, wg *sync.WaitGroup) {
+			defer filesWG.Done()
 
-		scanner := bufio.NewScanner(reader)
-		for scanner.Scan() {
-			line := scanner.Text()
-			jobs <- line
-		}
-		if err := scanner.Err(); err != nil {
-			log.Printf("Scanner error: %v", err)
-		}
+			log.Printf("Processing file: %v", fn)
+			f, err := os.Open(fn)
+			defer f.Close()
+			if err != nil {
+				log.Printf("Couldn't open file: %v", err)
+				return
+			}
 
-		reader.Close()
-		f.Close()
-		if err := dotRename(fn); err != nil {
-			log.Printf("Could't rename file: %v", err)
-		}
+			reader, err := gzip.NewReader(f)
+			defer reader.Close()
+			if err != nil {
+				log.Printf("Couldn't make reader: %v", err)
+				return
+			}
+
+			scanner := bufio.NewScanner(reader)
+			for scanner.Scan() {
+				line := scanner.Text()
+				jobs <- line
+			}
+			if err := scanner.Err(); err != nil {
+				log.Printf("Scanner error: %v", err)
+				return
+			}
+
+			if err := dotRename(fn); err != nil {
+				log.Printf("Could't rename file: %v", err)
+			}
+		}(fn, &filesWG)
 	}
 
-	log.Printf("Main: close job channel and wait...")
+	log.Printf("Main: making tasks from files...")
+	filesWG.Wait()
+
+	log.Printf("Main: close job channel and wait process workers")
 	close(jobs) // say to goroutines, that tasks have been finished
-	for x := 0; x < cfg.workers; x++ {
-		<-done // wait all workers until they do
-	}
-	log.Printf("Main: All tasks done! Processed: %d, Errors: %d", processed, errors)
+	psWG.Wait()
+
+	log.Printf("Main: close job channel and wait memcache workers")
+	close(mcJobs)
+	mcWG.Wait()
+	log.Printf("Main: All tasks done! Processed: %d, Errors: %d", processed, procErrors)
 }
 
 // creates map of device type and correspond memcache client
@@ -141,7 +172,7 @@ func createMemcClients(cfg config) *map[string]*memcache.Client {
 	for dtype, addr := range devTypeMemcAddr {
 		mc := memcache.New(addr)
 		mc.Timeout = sockTimeOut
-		mc.MaxIdleConns = cfg.workers + 1
+		mc.MaxIdleConns = cfg.maxconn
 		mcs[dtype] = mc
 	}
 	return &mcs
@@ -171,27 +202,21 @@ func getFilenames(pattern string) ([]string, error) {
 	return filenames, nil
 }
 
-func doJob(jobs <-chan string, done chan<- bool, mcs map[string]*memcache.Client, dryRun bool) {
-	for {
-		line, ok := <-jobs
-		if !ok {
-			// channel was closed. All jobs was done
-			log.Printf("Channel was closed")
-			done <- true
-			return
-		}
-
+// worker parses text line and produces tasks with protobuff msg
+func psWorker(jobs <-chan string, mcJobs chan<- mcJob, mcs map[string]*memcache.Client, wg *sync.WaitGroup) {
+	// process line until channel closed
+	for line := range jobs {
 		ual, err := parseUserAppsLine(line)
 		if err != nil {
 			log.Printf("Couldn't parse line: %v", err)
-			atomic.AddUint64(&errors, 1)
+			atomic.AddUint64(&procErrors, 1)
 			continue
 		}
 
 		mc, ok := mcs[ual.devType]
 		if !ok {
 			log.Printf("Unknown device ID - %v", ual.devID)
-			atomic.AddUint64(&errors, 1)
+			atomic.AddUint64(&procErrors, 1)
 			continue
 		}
 
@@ -203,25 +228,38 @@ func doJob(jobs <-chan string, done chan<- bool, mcs map[string]*memcache.Client
 		msgb, err := proto.Marshal(&uap)
 		if err != nil {
 			log.Printf("Could'n marshal uap: %v", err)
-			atomic.AddUint64(&errors, 1)
+			atomic.AddUint64(&procErrors, 1)
 			continue
 		}
 
-		if !dryRun {
-			key := fmt.Sprintf("%s:%s", ual.devType, ual.devID)
-			if err := mc.Set(&memcache.Item{Key: key, Value: msgb}); err != nil {
-				log.Printf("Couldn't set to memcached: %v", err)
-				atomic.AddUint64(&errors, 1)
-				continue
-			}
+		// send work to mc workers
+		key := fmt.Sprintf("%s:%s", ual.devType, ual.devID)
+		mcJobs <- mcJob{mc, key, &msgb}
+	}
+	wg.Done()
+}
+
+// worker sets data to memcache
+func mcWorker(jobs <-chan mcJob, wg *sync.WaitGroup) {
+	for job := range jobs {
+		item := &memcache.Item{Key: job.key, Value: *job.msgb}
+		if err := job.mc.Set(item); err != nil {
+			log.Printf("Couldn't set to memcached: %v", err)
+			atomic.AddUint64(&procErrors, 1)
+			continue
 		}
 		atomic.AddUint64(&processed, 1)
 	}
+	wg.Done()
 }
+
 
 func parseUserAppsLine(line string) (*userAppsLine, error) {
 	line = strings.Trim(line, "")
 	unpacked := strings.Split(line, "\t")
+	if len(unpacked) != 5 {
+		return nil, errors.New("Bad line: " + line)
+	}
 	devType, devID, rawLat, rawLon, rawApps := unpacked[0], unpacked[1], unpacked[2], unpacked[3], unpacked[4]
 	lat, err := strconv.ParseFloat(rawLat, 64)
 	if err != nil {
