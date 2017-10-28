@@ -141,9 +141,9 @@ func main() {
 	}
 
 	log.Printf("Main: All tasks done! All: %d, Success: %d, Errors: %d",
-															statTotal.processed,
-															statTotal.success,
-															statTotal.errors)
+		statTotal.processed,
+		statTotal.success,
+		statTotal.errors)
 }
 
 // creates map of device type and correspond memcache client
