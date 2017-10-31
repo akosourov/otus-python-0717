@@ -68,7 +68,7 @@ func NewConfigParse() *config {
 	flag.IntVar(&cfg.workers, "workers", 3, "Number of workers")
 	flag.IntVar(&cfg.mcworkers, "mcworkers", 6, "Number of memcache workers")
 	flag.IntVar(&cfg.jobslen, "jobslen", 100, "Length of jobs (task) queue")
-	flag.IntVar(&cfg.mcjobslen, "mcjobslen", 300, "Length of memcache jobs queue")
+	flag.IntVar(&cfg.mcjobslen, "mcjobslen", 100, "Length of memcache jobs queue")
 	flag.IntVar(&cfg.maxconn, "maxconn", 4, "Length of jobs (task) queue")
 	flag.StringVar(&cfg.logfile, "log", "", "Output log to file")
 	flag.StringVar(&cfg.pattern, "pattern", "./test_data/*.tsv.gz", "File pattern to process")
@@ -80,74 +80,8 @@ func NewConfigParse() *config {
 	return cfg
 }
 
-func main() {
-	cfg := NewConfigParse()
-	log.Printf("Memc loader started with options %+v", cfg)
-	if cfg.logfile != "" {
-		f, err := os.OpenFile(cfg.logfile, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
-		if err != nil {
-			log.Fatalf("Could't open logfile: %v", err)
-		}
-		defer f.Close()
-		log.SetOutput(f)
-	}
-
-	mcs := NewMapClients(*cfg)
-	psJobs := make(chan string, cfg.jobslen)
-	psStat := make(chan statistics)
-	mcJobs := make(chan mcJob, cfg.mcjobslen)
-	mcStat := make(chan statistics)
-	for i := 0; i < cfg.workers; i++ {
-		go psWorker(psJobs, mcJobs, psStat, *mcs)
-	}
-	for i := 0; i < cfg.mcworkers; i++ {
-		go mcWorker(mcJobs, mcStat)
-	}
-
-	// read files
-	filenames, err := getFilenames(cfg.pattern)
-	if err != nil {
-		log.Fatalf("Couldn't get list of files: %v", err)
-	}
-
-	wg := sync.WaitGroup{}
-	log.Printf("Main: begin make tasks from files...")
-	for _, fn := range filenames {
-		wg.Add(1)
-		go fileWorker(fn, psJobs, &wg)
-	}
-	wg.Wait()
-	close(psJobs) // say to process workers, that tasks have been finished
-	log.Print("Main: end make tasks. Wait process workers...")
-
-	statTotal := statistics{}
-	for i := 0; i < cfg.workers; i++ {
-		stat := <- psStat
-		statTotal.inc(stat)
-	}
-
-	close(mcJobs)  // say to memcache workers
-	log.Printf("Main: Process workers done. Wait memcache workers...")
-	for i := 0; i < cfg.mcworkers; i++ {
-		stat := <- mcStat
-		statTotal.inc(stat)
-	}
-
-	// Mark sorted files
-	for _, fn := range filenames {
-		if err := dotRename(fn); err != nil {
-			log.Printf("Couldn't rename file - %s: %v", fn, err)
-		}
-	}
-
-	log.Printf("Main: All tasks done! All: %d, Success: %d, Errors: %d",
-		statTotal.processed,
-		statTotal.success,
-		statTotal.errors)
-}
-
 // creates map of device type and correspond memcache client
-func NewMapClients(cfg config) *map[string]*memcache.Client {
+func NewMapClients(cfg *config) *map[string]*memcache.Client {
 	mcs := map[string]*memcache.Client{}
 	mcs["idfa"] = newMClient(cfg.idfa, cfg.maxconn)
 	mcs["gaid"] = newMClient(cfg.gaid, cfg.maxconn)
@@ -163,6 +97,73 @@ func newMClient(addr string, maxconn int) *memcache.Client {
 	return mc
 }
 
+// makes absolute path from relative path pattern
+func absPath(raw string) (string, error) {
+	absp := raw
+	if strings.HasPrefix(raw, ".") {
+		wd, err := os.Getwd()
+		if err != nil {
+			return "", err
+		}
+		absp = filepath.Join(wd, strings.TrimLeft(raw, "."))
+	}
+	return absp, nil
+}
+
+// return name of files that match pattern with date order
+// e.x. 20171230000000, 20171230000100, ...
+func getFilenames(pattern string) ([]string, error) {
+	pattern, err := absPath(pattern)
+	if err != nil {
+		return nil, err
+	}
+
+	filenames, err := filepath.Glob(pattern)
+	if err != nil {
+		return nil, err
+	}
+	sort.Strings(filenames)
+	return filenames, nil
+}
+
+func dotRename(fn string) error {
+	dir, f := filepath.Split(fn)
+	return os.Rename(fn, dir + "." + f)
+}
+
+func parseUserAppsLine(line string) (*userAppsLine, error) {
+	line = strings.Trim(line, "")
+	unpacked := strings.Split(line, "\t")
+	if len(unpacked) != 5 {
+		return nil, errors.New("Bad line: " + line)
+	}
+	devType, devID, rawLat, rawLon, rawApps := unpacked[0], unpacked[1], unpacked[2], unpacked[3], unpacked[4]
+	lat, err := strconv.ParseFloat(rawLat, 64)
+	if err != nil {
+		return nil, err
+	}
+	lon, err := strconv.ParseFloat(rawLon, 64)
+	if err != nil {
+		return nil, err
+	}
+	apps := []uint32{}
+	for _, rawApp := range strings.Split(rawApps, ",") {
+		if app, err := strconv.ParseUint(rawApp, 10, 32); err == nil {
+			apps = append(apps, uint32(app))
+		}
+	}
+
+	ual := userAppsLine{
+		devType: devType,
+		devID:   devID,
+		lat:     lat,
+		lon:     lon,
+		apps:    apps,
+	}
+	return &ual, nil
+}
+
+// worker reads gzip file and produces tasks
 func fileWorker(fn string, psJobs chan<- string, wg *sync.WaitGroup) {
 	defer wg.Done()
 	log.Printf("Processing file: %v", fn)
@@ -245,68 +246,68 @@ func mcWorker(jobs <-chan mcJob, statCh chan<- statistics) {
 	statCh <- stat
 }
 
-// makes absolute path from relative path pattern
-func absPath(raw string) (string, error) {
-	absp := raw
-	if strings.HasPrefix(raw, ".") {
-		wd, err := os.Getwd()
+func main() {
+	cfg := NewConfigParse()
+	log.Printf("Memc loader started with options %+v", cfg)
+	if cfg.logfile != "" {
+		f, err := os.OpenFile(cfg.logfile, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
 		if err != nil {
-			return "", err
+			log.Fatalf("Could't open logfile: %v", err)
 		}
-		absp = filepath.Join(wd, strings.TrimLeft(raw, "."))
-	}
-	return absp, nil
-}
-
-// return name of files that match pattern with date order
-// e.x. 20171230000000, 20171230000100, ...
-func getFilenames(pattern string) ([]string, error) {
-	pattern, err := absPath(pattern)
-	if err != nil {
-		return nil, err
+		defer f.Close()
+		log.SetOutput(f)
 	}
 
-	filenames, err := filepath.Glob(pattern)
-	if err != nil {
-		return nil, err
+	mcs := NewMapClients(cfg)
+	psJobs := make(chan string, cfg.jobslen)
+	psStat := make(chan statistics)
+	mcJobs := make(chan mcJob, cfg.mcjobslen)
+	mcStat := make(chan statistics)
+	for i := 0; i < cfg.workers; i++ {
+		go psWorker(psJobs, mcJobs, psStat, *mcs)
 	}
-	sort.Strings(filenames)
-	return filenames, nil
-}
+	for i := 0; i < cfg.mcworkers; i++ {
+		go mcWorker(mcJobs, mcStat)
+	}
 
-func parseUserAppsLine(line string) (*userAppsLine, error) {
-	line = strings.Trim(line, "")
-	unpacked := strings.Split(line, "\t")
-	if len(unpacked) != 5 {
-		return nil, errors.New("Bad line: " + line)
-	}
-	devType, devID, rawLat, rawLon, rawApps := unpacked[0], unpacked[1], unpacked[2], unpacked[3], unpacked[4]
-	lat, err := strconv.ParseFloat(rawLat, 64)
+	// read files
+	filenames, err := getFilenames(cfg.pattern)
 	if err != nil {
-		return nil, err
+		log.Fatalf("Couldn't get list of files: %v", err)
 	}
-	lon, err := strconv.ParseFloat(rawLon, 64)
-	if err != nil {
-		return nil, err
+
+	wg := sync.WaitGroup{}
+	log.Printf("Main: begin make tasks from files...")
+	for _, fn := range filenames {
+		wg.Add(1)
+		go fileWorker(fn, psJobs, &wg)
 	}
-	apps := []uint32{}
-	for _, rawApp := range strings.Split(rawApps, ",") {
-		if app, err := strconv.ParseUint(rawApp, 10, 32); err == nil {
-			apps = append(apps, uint32(app))
+	wg.Wait()
+	close(psJobs) // say to process workers, that tasks have been finished
+	log.Print("Main: end make tasks. Wait process workers...")
+
+	statTotal := statistics{}
+	for i := 0; i < cfg.workers; i++ {
+		stat := <- psStat
+		statTotal.inc(stat)
+	}
+
+	close(mcJobs)  // say to memcache workers
+	log.Printf("Main: Process workers done. Wait memcache workers...")
+	for i := 0; i < cfg.mcworkers; i++ {
+		stat := <- mcStat
+		statTotal.inc(stat)
+	}
+
+	// Mark sorted files
+	for _, fn := range filenames {
+		if err := dotRename(fn); err != nil {
+			log.Printf("Couldn't rename file - %s: %v", fn, err)
 		}
 	}
 
-	ual := userAppsLine{
-		devType: devType,
-		devID:   devID,
-		lat:     lat,
-		lon:     lon,
-		apps:    apps,
-	}
-	return &ual, nil
-}
-
-func dotRename(fn string) error {
-	dir, f := filepath.Split(fn)
-	return os.Rename(fn, dir+"."+f)
+	log.Printf("Main: All tasks done! All: %d, Success: %d, Errors: %d",
+		statTotal.processed,
+		statTotal.success,
+		statTotal.errors)
 }
