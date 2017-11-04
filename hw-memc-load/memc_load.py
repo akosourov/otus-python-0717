@@ -1,6 +1,8 @@
 import os
 from collections import defaultdict
+import glob
 import threading
+import multiprocessing
 import logging
 import gzip
 from Queue import Queue
@@ -27,16 +29,16 @@ def memc_thread(addr, job_queue, stats_queue):
         notset_keys = mc.set_multi(dict(job))
         # todo retry, true statistics
         if notset_keys:
-            logging.info("Couldn't set")
-            errors += 1
+            logging.info("Couldn't set keys")
+            errors += len(notset_keys)
         else:
-            success += 1
+            success += len(job)
         job_queue.task_done()
     stats_queue.put((success, errors))
 
 
 # executes in single process and produces threads for io tasks
-def process_file_worker(fn, memc_addr):
+def process_file_worker((fn, memc_addr)):
     # make jobs queues for every thread and run threads
     queues = defaultdict(Queue)
     stat_queue = Queue()
@@ -48,7 +50,6 @@ def process_file_worker(fn, memc_addr):
         mc_thread.start()
 
     # process file and produce job for memcache threads
-    i = 0
     k = 0
     chunks = defaultdict(list)
     processed = errors = 0
@@ -86,12 +87,12 @@ def process_file_worker(fn, memc_addr):
             if len(chunks[memc_name]) == CHUNK_SIZE:
                 job_queue.put(chunks[memc_name])
                 chunks[memc_name] = []
-            i += 1
-            if i == 1000:
                 k += 1
-                logging.info("Processed lines: %d", 1000*k)
-                i = 0
-    # todo rest chunks
+                logging.info("%s : Processed lines: %d", fn, CHUNK_SIZE*k)
+
+    # rest in chunks
+    for memc_name, jobs in chunks.items():
+        queues[memc_name].put(jobs)
 
     # notify all threads that tasks done and wait them
     for _, q in queues.items():
@@ -118,7 +119,14 @@ def main(options):
         'dvid': options['dvid'],
     }
 
-    process_file_worker("./test_data/201709290000000.tsv.gz", memc_addr)
+    worker_args = []
+    for fn in glob.iglob(options['pattern']):
+        worker_args.append((fn, memc_addr))
+
+    workers_pool = multiprocessing.Pool(options['workers'])
+    for x in workers_pool.imap(process_file_worker, worker_args):
+        logging.info('x: %s', x)
+    # process_file_worker("./test_data/201709290000000.tsv.gz", memc_addr)
 
 
 if __name__ == '__main__':
@@ -131,6 +139,8 @@ if __name__ == '__main__':
         'gaid': '127.0.0.1:33014',
         'adid': '127.0.0.1:33015',
         'dvid': '127.0.0.1:33016',
+        'workers': 4,
+        'pattern': './test_data/*.tsv.gz'
     }
     main(options)
 
