@@ -31,6 +31,7 @@ def memc_thread(addr, job_queue, stats_queue, dry):
             if notset_keys:
                 logging.info("Couldn't set keys")
                 errors += len(notset_keys)
+                success += len(job) - len(notset_keys)
             else:
                 success += len(job)
         job_queue.task_done()
