@@ -1,23 +1,23 @@
-import os
+import argparse
 from collections import defaultdict
 import glob
-import threading
-import multiprocessing
-import logging
 import gzip
-from Queue import Queue
+import logging
+import threading
 import memcache
+import multiprocessing
+from Queue import Queue
 
-from memc_load_single import parse_appsinstalled, dot_rename
+from memc_load_single import parse_appsinstalled, dot_rename, prototest
 import appsinstalled_pb2
 
 
-MEMC_SOCKET_TIMEOUT = 1
-CHUNK_SIZE = 1000
+MEMC_SOCKET_TIMEOUT = 1.5
+MEMC_CHUNK_SIZE = 1000
 TASK_DONE_MSG = None
 
 
-def memc_thread(addr, job_queue, stats_queue):
+def memc_thread(addr, job_queue, stats_queue, dry):
     mc = memcache.Client([addr], socket_timeout=MEMC_SOCKET_TIMEOUT)
     success = errors = 0
     while True:
@@ -26,25 +26,25 @@ def memc_thread(addr, job_queue, stats_queue):
             job_queue.task_done()
             break
 
-        notset_keys = mc.set_multi(dict(job))
-        # todo retry, true statistics
-        if notset_keys:
-            logging.info("Couldn't set keys")
-            errors += len(notset_keys)
-        else:
-            success += len(job)
+        if not dry:
+            notset_keys = mc.set_multi(dict(job))
+            if notset_keys:
+                logging.info("Couldn't set keys")
+                errors += len(notset_keys)
+            else:
+                success += len(job)
         job_queue.task_done()
     stats_queue.put((success, errors))
 
 
 # executes in single process and produces threads for io tasks
-def process_file_worker((fn, memc_addr)):
+def process_file_worker((fn, memc_addr, dry)):
     # make jobs queues for every thread and run threads
     queues = defaultdict(Queue)
     stat_queue = Queue()
     for memc_name, addr in memc_addr.items():
         mc_thread = threading.Thread(target=memc_thread,
-                                     args=(addr, queues[memc_name], stat_queue),
+                                     args=(addr, queues[memc_name], stat_queue, dry),
                                      name=memc_name)
         mc_thread.daemon = True
         mc_thread.start()
@@ -84,13 +84,13 @@ def process_file_worker((fn, memc_addr)):
             msg = apps_proto.SerializeToString()
             job = (key, msg)
             chunks[memc_name].append(job)
-            if len(chunks[memc_name]) == CHUNK_SIZE:
+            if len(chunks[memc_name]) == MEMC_CHUNK_SIZE:
                 job_queue.put(chunks[memc_name])
                 chunks[memc_name] = []
                 k += 1
-                logging.info("%s : Processed lines: %d", fn, CHUNK_SIZE*k)
+                logging.info("%s : Processed lines: %d", fn, MEMC_CHUNK_SIZE * k)
 
-    # rest in chunks
+    # process rest in chunks
     for memc_name, jobs in chunks.items():
         queues[memc_name].put(jobs)
 
@@ -110,57 +110,65 @@ def process_file_worker((fn, memc_addr)):
     logging.info('File %s processed. Lines: %d, success: %d, errors: %d',
                  fn, processed, success, errors)
 
+    return fn, processed, success, errors
+
 
 def main(options):
     memc_addr = {
-        'idfa': options['idfa'],
-        'gaid': options['gaid'],
-        'adid': options['adid'],
-        'dvid': options['dvid'],
+        'idfa': options.idfa,
+        'gaid': options.gaid,
+        'adid': options.adid,
+        'dvid': options.dvid,
     }
 
-    worker_args = []
-    for fn in glob.iglob(options['pattern']):
-        worker_args.append((fn, memc_addr))
+    worker_args = ((fn, memc_addr, options.dry)
+                   for fn in glob.iglob(options.pattern))
 
-    workers_pool = multiprocessing.Pool(options['workers'])
-    for x in workers_pool.imap(process_file_worker, worker_args):
-        logging.info('x: %s', x)
-    # process_file_worker("./test_data/201709290000000.tsv.gz", memc_addr)
+    # older files process first
+    worker_args = sorted(worker_args, key=lambda x: x[0])
+
+    workers_pool = multiprocessing.Pool(options.workers)
+    processed = success = errors = 0
+    for res in workers_pool.imap(process_file_worker, worker_args):
+        fn, p, s, e = res
+        logging.info('Process %s done. Processed: %d, success: %d, errors: %d',
+                     fn, p, s, e)
+        processed += p
+        success += s
+        errors += e
+        dot_rename(fn)
+
+    logging.info('All done.  Processed: %d, success: %d, errors: %d',
+                 processed, success, errors)
 
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Parallel memcache loader')
+    parser.add_argument('-w', '--workers', type=int, action='store', default=2)
+    parser.add_argument('-t', '--test', action='store_true', default=False)
+    parser.add_argument('-l', '--log', action='store', default=None)
+    parser.add_argument('--dry', action='store_true', default=False)
+    parser.add_argument('--pattern', action='store', default='./test_data/*.tsv.gz')
+    parser.add_argument('--idfa', action='store', default='127.0.0.1:33013')
+    parser.add_argument('--gaid', action='store', default='127.0.0.1:33014')
+    parser.add_argument('--adid', action='store', default='127.0.0.1:33015')
+    parser.add_argument('--dvid', action='store', default='127.0.0.1:33016')
+    options = parser.parse_args()
+
     logging.basicConfig(
-        level=logging.INFO,
+        filename=options.log,
+        level=logging.INFO if not options.dry else logging.DEBUG,
         format='%(process)d|%(threadName)s [%(asctime)s] %(levelname).1s %(message)s',
         datefmt='%Y.%m.%d %H:%M:%S')
-    options = {
-        'idfa': '127.0.0.1:33013',
-        'gaid': '127.0.0.1:33014',
-        'adid': '127.0.0.1:33015',
-        'dvid': '127.0.0.1:33016',
-        'workers': 4,
-        'pattern': './test_data/*.tsv.gz'
-    }
-    main(options)
 
-# def worker():
-#     while True:
-#         job = q.get()
-#         print "PID: %d THD: %d JOB: %s" % (os.getgid(), threading._get_ident(), job)
-#         q.task_done()
-#
-#
-# q = Queue()
-# print "Putting jobs"
-# for i in range(30):
-#     q.put("job_%d" % i)
-#
-# print "Starting threads"
-# for _ in range(4):
-#     t = threading.Thread(target=worker)
-#     t.daemon = True
-#     t.start()
-#
-# print "Wait workers"
-# q.join()
+    logging.info('Memcache loader starting with options: %s', options)
+
+    if options.test:
+        prototest()
+        exit(0)
+
+    try:
+        main(options)
+    except Exception as e:
+        logging.exception('Unexpected exception %s', e)
+        exit(1)

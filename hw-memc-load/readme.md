@@ -9,21 +9,13 @@ total 444M
 
 #### single thread mode
 ```
-$> time ./memc_load -workers=1 -jobslen=1
-real    6m12,708s
-user    4m13,084s
-sys     3m8,788s
+$> time python memc_load_single.py
+real    15m58,501s
+user    11m17,532s
+sys     3m41,656s
 ```
 
 #### concurrent mode
-```
-$> time ./memc_load -workers=4 -jobslen=100
-real    1m35,125s
-user    2m24,276s
-sys     1m6,888s
-```
-
-#### concurrent mode python
 ```
 $> time python memc_load.py -w=3
 real    3m9,091s
