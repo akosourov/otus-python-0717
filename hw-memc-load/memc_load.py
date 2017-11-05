@@ -81,7 +81,7 @@ def process_file_worker((fn, memc_addr, dry)):
             apps_proto.apps.extend(apps_line.apps)
 
             # send job
-            key = "%s:%s" % (apps_line.dev_type, apps_line.dev_id)
+            key = "%s:%s" % (memc_name, apps_line.dev_id)
             msg = apps_proto.SerializeToString()
             job = (key, msg)
             chunks[memc_name].append(job)
@@ -93,7 +93,8 @@ def process_file_worker((fn, memc_addr, dry)):
 
     # process rest in chunks
     for memc_name, jobs in chunks.items():
-        queues[memc_name].put(jobs)
+        if jobs:
+            queues[memc_name].put(jobs)
 
     # notify all threads that tasks done and wait them
     for _, q in queues.items():
