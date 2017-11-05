@@ -126,7 +126,7 @@ def main(options):
     worker_args = ((fn, memc_addr, options.dry)
                    for fn in glob.iglob(options.pattern))
 
-    # older files process first
+    # process older files first
     worker_args = sorted(worker_args, key=lambda x: x[0])
 
     workers_pool = multiprocessing.Pool(options.workers)
