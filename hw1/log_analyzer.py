@@ -23,9 +23,9 @@ config = {
 log_pattern = re.compile(r'nginx-access-ui.log-([0-9]{8})(.gz)?$')
 
 
-def get_last_log(folder_name):
+def get_last_log(dir_name):
     try:
-        logs = os.listdir(folder_name)
+        logs = os.listdir(dir_name)
     except OSError:
         # not exists
         return None
