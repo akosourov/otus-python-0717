@@ -60,10 +60,7 @@ def card_ranks(hand):
 
 def flush(hand):
     """Возвращает True, если все карты одной масти"""
-    for i in range(1, len(hand)):
-        if hand[i-1][1] != hand[i][1]:
-            return False
-    return True
+    return len(set(c[1] for c in hand)) == 1
 
 
 def straight(ranks):
@@ -121,51 +118,10 @@ def rank_to_int(rank):
 
 
 def best_hand(hand):
-    """Из "руки" в 7 карт возвращает лучшую "руку" в 5 карт """
+    """Из "руки" в 7 карт возвращает лучшую "руку" в 5 карт"""
     # Всего возможных сочетаний: 21 = 7!/(5!*(7-5)!)
-    ranks = {}   # hand_comb -> rank_data
-    for comb in itertools.combinations(hand, 5):
-        ranks[comb] = hand_rank(comb)
-
-    # Максимальный вес возможных "рук"
-    max_weight = max([r_data[0] for _, r_data in ranks.items()])
-    max_keys = []      # руки с максимальным весом
-    for comb, data in ranks.items():
-        if data[0] == max_weight:
-            max_keys.append(comb)
-    # Поиск лучшей "руки" из max_keys
-    # max_keys должен быть не пустым
-    if max_weight in (8, 4):
-        # Лучшая рука это та, у которой data[1] больше
-        max_keys.sort(
-            key=lambda key: ranks[key][1],
-            reverse=True)
-    elif max_weight in (7, 6):
-        # data[1] - int
-        # data[2] - int
-        # Сначала нужно найти тех, у которых data[1] наибольшая
-        # Затем из них выбрать тех, у которых data[2] наибольшая
-        max_keys.sort(
-            key=lambda key: (ranks[key][1], ranks[key][2]),
-            reverse=True)
-    elif max_weight in (5, 0):
-        # data[1] - list
-        max_keys.sort(
-            key=lambda key: sum(ranks[key][1]),
-            reverse=True)
-    elif max_keys in (3, 1):
-        # data[1] - int
-        # data[2] - list
-        max_keys.sort(
-            key=lambda key: (ranks[key][1], sum(ranks[key][2])),
-            reverse=True)
-    elif max_keys == 2:
-        # data[1] - list
-        # data[2] - list
-        max_keys.sort(
-            key=lambda key: (sum(ranks[key][1]), sum(ranks[key][2])),
-            reverse=True)
-    return max_keys[0]
+    combs = itertools.combinations(hand, 5)
+    return max(combs, key=hand_rank)
 
 
 def best_wild_hand(hand):
@@ -241,6 +197,7 @@ def test_best_wild_hand():
     assert (sorted(best_wild_hand("JD TC TH 7C 7D 7S 7H".split()))
             == ['7C', '7D', '7H', '7S', 'JD'])
     print 'OK'
+
 
 if __name__ == '__main__':
     test_card_ranks()

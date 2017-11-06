@@ -1,8 +1,11 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+from collections import defaultdict
+from datetime import datetime
+import gzip
+import json
 import os
 import re
-import gzip
 import shutil
 
 
@@ -14,107 +17,84 @@ import shutil
 config = {
     "REPORT_SIZE": 1000,
     "REPORT_DIR": "./reports",
+    "REPORT_TPL": "./reports/report.html",
     "LOG_DIR": "./log"
 }
+log_pattern = re.compile(r'nginx-access-ui.log-([0-9]{8})(.gz)?$')
 
 
-def main():
-    log_files = os.listdir(config["LOG_DIR"])
-    log_filename = get_last_log(log_files)
-    if log_filename is None:
-        print "Нет логов для анализа"
-        exit()
+def get_last_log(folder_name):
+    try:
+        logs = os.listdir(folder_name)
+    except OSError:
+        # not exists
+        return None
 
-    if log_was_analyzed(log_filename):
-        print "Лог {} уже проанализирован".format(log_filename)
-        exit()
+    if not logs:
+        return None
 
-    if log_filename.endswith('.gz'):
-        print "Распаковка ", log_filename
-        log_filename = extract_gzip(os.path.join(config["LOG_DIR"], log_filename),
-                                    os.path.join(config["LOG_DIR"], log_filename[:-3]))
+    logs = filter(lambda x: log_pattern.search(x), logs)
+    if not logs:
+        return None
 
-    print "Обрабатывается лог ", log_filename
-
-    # Парсим лог
-    url_stat = parse_log(os.path.join(config["LOG_DIR"], log_filename))
-
-    # Расчет статистики
-    calculate_stat(url_stat)
-
-    # list должен содержать ссылки на url_stat.values()
-    # Поэтому не должно содержать много доп. памяти
-    url_stat_list = [url_stat[url]["stat"] for url in url_stat]
-    url_stat_list.sort(key=lambda x: -x["time_sum"])
-
-    # Создание отчета
-    date = log_filename.split('-')[3]
-    report_filename = "report-{}.{}.{}.html".format(date[:4], date[4:6], date[6:8])
-    print "Генерируем отчет", report_filename
-    make_report(report_filename, url_stat_list)
-
-    mark_log_done(log_filename)
+    def fn_keys(fn):
+        match = log_pattern.search(fn)
+        # match is not None, because already filtered
+        date_part, gz_part = match.groups()
+        date = datetime.strptime(date_part, '%Y%m%d')
+        is_plain = gz_part is None
+        return date, is_plain
+    return max(logs, key=fn_keys)
 
 
-def get_last_log(logs):
-    def filename_keys(filename):
-        # todo следует использовать re
-        # date
-        part = filename.split('-')[3]
-        if filename.endswith('.gz'):
-            date = part[:len(part)-3]
-        else:
-            date = part
-
-        isfile = part.isdigit()
-        return date, isfile
-
-    logs.sort(key=filename_keys, reverse=True)
-    return logs[0] if logs else None
+def test_get_last_log():
+    assert 'nginx-access-ui.log-20170630' == get_last_log('./test_log')
 
 
-def log_was_analyzed(log):
-    if os.path.isfile('last_log_done.txt'):
-        with open('last_log_done.txt') as f:
-            if f.readline() == log:
-                return True
-    return False
+def get_report_name_for_log(fn_log):
+    date_part, _ = log_pattern.search(fn_log).groups()
+    date = datetime.strptime(date_part, '%Y%m%d')
+    return 'report-{}.html'.format(date.strftime('%Y.%m.%d'))
 
 
-def extract_gzip(filename, out):
-    with gzip.open(filename, 'rb') as f_in, \
-            open(out, 'wb') as f_out:
+def log_was_analyzed(fn):
+    fn_report = get_report_name_for_log(fn)
+    return os.path.isfile(os.path.join(config["REPORT_DIR"], fn_report))
+
+
+def log_is_gzip(fn_log):
+    _, gz_part = log_pattern.search(fn_log).groups()
+    return gz_part is not None
+
+
+def extract_gzip(fn_gz_path):
+    fn_plain_path = fn_gz_path.rstrip('.gz')
+    with gzip.open(fn_gz_path, 'rb') as f_in, \
+            open(fn_plain_path, 'wb') as f_out:
         shutil.copyfileobj(f_in, f_out)
-    return os.path.basename(filename.replace('.gz', ''))
+    return fn_plain_path
 
 
-def parse_log(log):
-    url_stat = {}
-    with open(log) as f:
+def parse_log(fn_log):
+    url_stat = defaultdict(lambda: {"rows": [], "stat": {}})
+    size = 100000
+    with open(fn_log) as f:
         i = 0
         c = 0
         for line in f:
-            # Регулярка не моя, стоит разобраться
             row = map(''.join, re.findall(r'\"(.*?)\"|\[(.*?)\]|(\S+)', line))
             try:
                 url = row[4].split(' ')[1]   # GET /req?a=1
             except IndexError:
                 url = row[4]                 # "0"
 
-            if url in url_stat:
-                url_stat[url]["rows"].append(row)
-            else:
-                url_stat[url] = {
-                    "rows": [row],
-                    "stat": {}    # понадобиться позднее
-                }
+            url_stat[url]["rows"].append(row)
+
             i += 1
-            # if i == 1234:
-            #     break
-            if i == 100000:
-                c += 100000
+            if i == size:
+                c += 1
                 i = 0
-                print "Обработано строк", c
+                print "Rows processed ", c * size
     return url_stat
 
 
@@ -143,7 +123,6 @@ def calculate_stat(url_stat):
         # url
         data["stat"]["url"] = url
 
-    # Перцентили
     for url, data in url_stat.items():
         data["stat"]["time_perc"] = (
             (data["stat"]["time_sum"] / total_time_sum) * 100
@@ -152,45 +131,52 @@ def calculate_stat(url_stat):
             (data["stat"]["count"] / total_count) * 100
         )
         data["stat"]["time_med"] = (
-            0  # todo разобраться
+            (data["stat"]["time_sum"] / total_time_sum) * 100
         )
 
 
-def make_report(report_filename, url_stat_list):
-    report_filename_path = os.path.join(config["REPORT_DIR"], report_filename)
-    # Вставка данных
-    with open('report.html') as tmpl_file, \
-            open(report_filename_path, 'w') as report_file:
-        for line in tmpl_file:
+def generate_report(tpl_path, fn_report_path, url_stat_list):
+    stat_text = json.dumps(url_stat_list)
+    with open(tpl_path) as tpl_file, \
+            open(fn_report_path, 'w') as report_file:
+        for line in tpl_file:
             if '$table_json' in line:
-                # Memory Error на моей машине при такой команде
-                # line = line.replace('$table_json', str(url_stat_list))
-                # report_file.write(line)
-
-                # Вставим большой массив данных кусками
-                step = len(url_stat_list) / 10
-                report_file.write(line.replace('$table_json;', '['))
-                for i in range(0, len(url_stat_list), step):
-                    delta = len(url_stat_list) - i
-                    if delta <= step:
-                        # Последний шаг
-                        line = str(url_stat_list[i:])
-                        line = line.lstrip('[')
-                        line = line.rstrip(']')
-                        report_file.write(line)
-                    else:
-                        line = str(url_stat_list[i:i+step])
-                        line = line.lstrip('[')
-                        line = line.rstrip(']')
-                        report_file.write(line + ',')
-                report_file.write('];')
-            else:
-                report_file.write(line)
+                line = line.replace('$table_json', stat_text)
+            report_file.write(line)
 
 
-def mark_log_done(log):
-    with open('last_log_done.txt', 'w') as f:
-        f.write(log)
+def main():
+    fn_log = get_last_log(config["LOG_DIR"])
+    if fn_log is None:
+        print "Logs not found in folder %s" % config["LOG_DIR"]
+        exit()
+
+    if log_was_analyzed(fn_log):
+        print "Log %s already analyzed" % fn_log
+        exit()
+
+    fn_log_path = os.path.join(config["LOG_DIR"], fn_log)
+    if log_is_gzip(fn_log):
+        print "Extract log ", fn_log_path
+        fn_log_path = extract_gzip(fn_log_path)
+
+    print "Analyze ", fn_log_path
+
+    url_stat = parse_log(fn_log_path)
+
+    calculate_stat(url_stat)
+
+    # generate statistics list
+    url_stat_list = [url_stat[url]["stat"] for url in url_stat]
+    url_stat_list.sort(key=lambda x: -x["time_sum"])
+
+    fn_report = get_report_name_for_log(fn_log)
+    print 'Generate report ', fn_report
+    fn_report_path = os.path.join(config["REPORT_DIR"], fn_report)
+    generate_report(config["REPORT_TPL"], fn_report_path, url_stat_list)
+    print 'Done'
+
 
 if __name__ == "__main__":
+    test_get_last_log()
     main()
