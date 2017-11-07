@@ -35,8 +35,7 @@ class TestSuite(unittest.TestCase):
     def test_empty_request(self):
         _, code = self.get_response({})
         self.assertEqual(api.INVALID_REQUEST, code)
-    
-    
+
     @cases([
         {"account": "horns&hoofs", "login": "h&f", "method": "online_score", "token": "", "arguments": {}},
         {"account": "horns&hoofs", "login": "h&f", "method": "online_score", "token": "sdd", "arguments": {}},
@@ -106,7 +105,7 @@ class TestSuite(unittest.TestCase):
         self.assertEqual(api.OK, code)
         score = response.get("score")
         self.assertEqual(score, 42)
-    
+
     @cases([
         {},
         {"date": "20.07.2017"},
@@ -121,7 +120,7 @@ class TestSuite(unittest.TestCase):
         response, code = self.get_response(request)
         self.assertEqual(api.INVALID_REQUEST, code, arguments)
         self.assertTrue(len(response))
-    
+
     @cases([
         {"client_ids": [1, 2, 3], "date": datetime.datetime.today().strftime("%d.%m.%Y")},
         {"client_ids": [1, 2], "date": "19.07.2017"},
@@ -136,6 +135,7 @@ class TestSuite(unittest.TestCase):
         self.assertTrue(all(v and isinstance(v, list) and all(isinstance(i, basestring) for i in v)
                         for v in response.values()))
         self.assertEqual(self.context.get("nclients"), len(arguments["client_ids"]))
-    
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -58,7 +58,7 @@
 
 # Метод clients_interests.
 # Аргументы:
-# client_ids - массив числе, обязательно, не пустое
+# client_ids - массив чисел, обязательно, не пустое
 # date - дата в формате DD.MM.YYYY, опционально, может быть пустым
 
 # Валидация аругементов:
@@ -127,90 +127,82 @@ class Field(object):
         self.name = None
 
     @abc.abstractmethod
-    def validate_value(self, value):
-        return True or False
+    def parse_validate(self, value):
+        """Try parse and then validate or raise ValueError"""
 
-    def parse_value(self, value):
-        return value
-
-    def validate_req_null(self, value):
-        if self.required and value is None:
-            return False
-        if not self.nullable and not value:
-            return False
-        return True
+    @abc.abstractproperty
+    def empty_values(self):
+        """Get tuple with empty allowable values"""
 
 
 class CharField(Field):
-    def validate_value(self, value):
-        if not self.required and not value:
-            return True
-        if isinstance(value, (str, unicode)):
-            return True
-        return False
+    def parse_validate(self, value):
+        if not isinstance(value, (str, unicode)):
+            raise ValueError("CharField must be a string")
+        return value
 
-    def parse_value(self, value):
-        if isinstance(value, unicode) or not value:
-            return value
-        else:
-            return value.decode('utf-8')
+    @property
+    def empty_values(self):
+        return ('', None)
 
 
 class ArgumentsField(Field):
-    def validate_value(self, value):
-        if not self.required and not value:
-            return True
-        if isinstance(value, dict):
-            return True
-        return False
-
-    def parse_value(self, value):
+    def parse_validate(self, value):
+        if not isinstance(value, dict):
+            raise ValueError("ArgumentsField must be a dict")
         return value
+
+    @property
+    def empty_values(self):
+        return ({}, None)
 
 
 class EmailField(CharField):
-    def validate_value(self, value):
-        if not self.required and not value:
-            return True
-        if not super(EmailField, self).validate_value(value):
-            return False
-        value = super(EmailField, self).parse_value(value)
-        if value and '@' in value:
-            return True
-        return False
+    def parse_validate(self, value):
+        value = super(EmailField, self).parse_validate(value)
+        if '@' not in value:
+            raise ValueError("EmailField must be a valid email, need '@'")
+        return value
     
 
 class PhoneField(Field):
-    def validate_value(self, value):
-        if not self.required and not value:
-            return True
-        if isinstance(value, (str, int, long)):
-            value = str(value)
-            if value == '':
-                return True
-            if len(value) == 11 and value[0] == '7' and value.isdigit():
-                return True
-        return False
+    def parse_validate(self, value):
+        if not isinstance(value, (str, unicode, int, long)):
+            raise ValueError("PhoneField must be a string or integer")
+        value = str(value)
+        if not (len(value) == 11 and value.startswith('7') and value.isdigit()):
+            raise ValueError("PhoneField must contains 7 with 11 character length")
+        return value
+
+    @property
+    def empty_values(self):
+        return ('', 0, None)
         
 
 class DateField(Field):
-    # DD.MM.YYYY
-    def validate_value(self, value):
-        if not self.required and not value:
-            return True
-        if isinstance(value, basestring):
-            try:
-                datetime.datetime.strptime(str(value), '%d.%m.%Y')
-                return True
-            except ValueError:
-                pass
-        return False
+    def parse_validate(self, value):
+        if not isinstance(value, (str, unicode)):
+            raise ValueError("DateField must be a string")
+        value = str(value)
+        try:
+            dt = datetime.datetime.strptime(value, '%d.%m.%Y')
+        except ValueError:
+            raise ValueError("DateField does not match %d.%m.%Y")
+        return dt.date()
 
-    def parse_value(self, value):
-        return datetime.datetime.strptime(str(value), '%d.%m.%Y') if value else None
+    @property
+    def empty_values(self):
+        return ('', None)
 
 
 class BirthDayField(DateField):
+    def parse_validate(self, value):
+        date = super(BirthDayField, self).parse_validate(value)
+        today = datetime.date.today()
+        if date > today or today.year - date.year > 70:
+            raise ValueError("BirthDayField must be in [today-70 ... today]")
+        return date
+
     def validate_value(self, value):
         if not self.required and not value:
             return True
@@ -224,32 +216,36 @@ class BirthDayField(DateField):
 
 
 class GenderField(Field):
-    def validate_value(self, value):
-        if not self.required and not value:
-            return True
-        if value in GENDERS:
-            return True
-        return False
+    def parse_validate(self, value):
+        gender = GENDERS.get(value)
+        if not gender:
+            raise ValueError("GenderField must be %s" % GENDERS.keys())
+        return gender
+
+    @property
+    def empty_values(self):
+        return (None,)
 
 
 class ClientIDsField(Field):
-    def validate_value(self, value):
-        if not self.required and not value:
-            return True
-        if isinstance(value, list):
-            if all(isinstance(c, int) for c in value):
-                return True
-        return False
+    def parse_validate(self, value):
+        if not (isinstance(value, list) and all(isinstance(c, int) for c in value)):
+            raise ValueError("ClientIDsField must be a list of integers")
+        return value
+
+    @property
+    def empty_values(self):
+        return ([], None)
 
 
 class RequestMeta(type):
-    def __new__(mcs, name, bases, dct):
+    def __new__(mcs, name, bases, attr_dict):
         fields = []
-        for k, v in dct.items():
+        for attr, v in attr_dict.items():
             if isinstance(v, Field):
-                v.name = k
+                v.name = attr
                 fields.append(v)
-        cls = type.__new__(mcs, name, bases, dct)
+        cls = type.__new__(mcs, name, bases, attr_dict)
         cls.fields = fields
         return cls
 
@@ -257,30 +253,57 @@ class RequestMeta(type):
 class Request(object):
     __metaclass__ = RequestMeta   # creates cls.fields = [field1, ...]
 
-    def __init__(self, rawrequest, ctx):
-        self.rawrequest = rawrequest
-        self.ctx = ctx
-        self.validation_done = False
-        self.invalid_fields = []
-        self.validate()
+    def __init__(self, request):
+        self.request = request
+        self.clean_done = False
+        self.invalid_fieldnames = []
 
-    def validate(self):
+    def clean(self):
+        """Parse fields and set values to instance:
+        e.x. self.fieldname = parsed_value"""
         for field in self.fields:
-            value = self.rawrequest.get(field.name)
-            if field.validate_req_null(value) and field.validate_value(value):
-                parsed_value = field.parse_value(value)
-                setattr(self, field.name, parsed_value)
-            else:
-                self.invalid_fields.append(field.name)
-        self.validation_done = True
+            field_name = field.name
+
+            # empty fields
+            if field_name not in self.request:
+                if field.required:
+                    self.invalid_fieldnames.append(field_name)
+                setattr(self, field_name, None)
+                continue
+            value = self.request[field_name]
+            if value in field.empty_values:
+                if not field.nullable:
+                    self.invalid_fieldnames.append(field_name)
+                setattr(self, field_name, value)
+                continue
+
+            # not empty fields
+            try:
+                parsed_value = field.parse_validate(value)
+            except ValueError:
+                self.invalid_fieldnames.append(field_name)
+                continue
+            setattr(self, field_name, parsed_value)
+        self.clean_done = True
 
     def is_valid(self):
-        if not self.validation_done:
-            self.validate()
-        return not self.invalid_fields
+        if not self.clean_done:
+            self.clean()
+        return not self.invalid_fieldnames
 
-    def validation_errors(self):
-        return ', '.join(self.invalid_fields)
+    def errors_text(self):
+        return ', '.join(self.invalid_fieldnames)
+
+    @property
+    def not_empty_fieldnames(self):
+        if not self.clean_done:
+            self.clean()
+        not_empty = []
+        for field in self.fields:
+            value = getattr(self, field.name)
+            if value not in field.empty_values:
+                not_empty.append(field.name)
+        return not_empty
 
 
 class MethodRequest(Request):
@@ -302,14 +325,6 @@ class ClientsInterestsRequest(Request):
     client_ids = ClientIDsField(required=True)
     date = DateField(required=False, nullable=True)
 
-    def getresult(self):
-        if not self.is_valid():
-            return self.validation_errors(), INVALID_REQUEST
-
-        res = {cl: ['interest1', 'interest2'] for cl in self.client_ids}
-        self.ctx['nclients'] = len(res)
-        return res, OK
-
 
 class OnlineScoreRequest(Request):
     first_name = CharField(required=False, nullable=True)
@@ -325,38 +340,18 @@ class OnlineScoreRequest(Request):
         ('gender', 'birthday')
     )
 
-    def __init__(self, rawrequest, ctx, methodrequest):
-        super(OnlineScoreRequest, self).__init__(rawrequest, ctx)
-        self.methodrequest = methodrequest
-
-    def validate(self):
-        super(OnlineScoreRequest, self).validate()
-        if not self.invalid_fields:
-            self.ctx['has'] = []
-            for field in self.__class__.fields:
-                value = self.rawrequest.get(field.name)
-                if not field.validate_req_null(value):
-                    self.invalid_fields.append(field.name)
-                if value is not None:
-                    self.ctx['has'].append(field.name)
-
-            has_valid_pair = False
-            for pair in self._valid_pairs:
-                value1 = getattr(self, pair[0])
-                value2 = getattr(self, pair[1])
-                if value1 is not None and value2 is not None:
-                    has_valid_pair = True
-            if not has_valid_pair:
-                self.invalid_fields.append(str(self._valid_pairs[0]))
-            self.validation_done = True
-
-    def getresult(self):
-        if not self.is_valid():
-            return self.validation_errors(), INVALID_REQUEST
-        if self.methodrequest.is_admin:
-            return {'score': 42}, OK
-        else:
-            return {'score': random.randrange(0, 100)}, OK
+    def clean(self):
+        super(OnlineScoreRequest, self).clean()
+        if not self.invalid_fieldnames:
+            valid_pair_exists = False   # not empty pair
+            for fieldname1, fieldname2 in self._valid_pairs:
+                value1 = getattr(self, fieldname1)
+                value2 = getattr(self, fieldname2)
+                if value1 and value2:
+                    valid_pair_exists = True
+            if not valid_pair_exists:
+                self.invalid_fieldnames.append(str(self._valid_pairs[0]))
+            self.clean_done = True
 
 
 def check_auth(request):
@@ -369,24 +364,67 @@ def check_auth(request):
     return False
 
 
-def method_handler(request, ctx):
-    req = MethodRequest(request['body'], ctx)
+class MethodRequestHandler(object):
+    """Common place to put your request method handler"""
 
-    if not req.is_valid():
-        return req.validation_errors(), INVALID_REQUEST
-    if not req.check_auth():
+    def __init__(self, cls_request, method_request, ctx):
+        assert cls_request in (OnlineScoreRequest, ClientsInterestsRequest)
+        assert isinstance(method_request, MethodRequest)
+        assert isinstance(ctx, dict)
+
+        self.method_request = method_request
+        self.ctx = ctx
+
+        if cls_request == OnlineScoreRequest:
+            self.target_handler = self.handler_OnlineScoreRequest
+        elif cls_request == ClientsInterestsRequest:
+            self.target_handler = self.handler_ClientsInterestsRequest
+
+    def handle(self):
+        return self.target_handler()
+
+    def handler_OnlineScoreRequest(self):
+        score_request = OnlineScoreRequest(self.method_request.arguments)
+        if not score_request.is_valid():
+            return score_request.errors_text(), INVALID_REQUEST
+        self.ctx['has'] = score_request.not_empty_fieldnames
+        if self.method_request.is_admin:
+            return {'score': 42}, OK
+        else:
+            return {'score': random.randrange(0, 100)}, OK
+
+    def handler_ClientsInterestsRequest(self):
+        interests_request = ClientsInterestsRequest(self.method_request.arguments)
+        if not interests_request.is_valid():
+            return interests_request.errors_text(), INVALID_REQUEST
+
+        interests = ['coding', 'sport', 'tv', 'books', 'education']
+
+        res = {c: random.sample(interests, random.randint(1, len(interests)))
+               for c in interests_request.client_ids}
+        self.ctx['nclients'] = len(interests_request.client_ids)
+        return res, OK
+
+
+def method_handler(request_raw, ctx):
+    request = MethodRequest(request_raw['body'])
+
+    if not request.is_valid():
+        return request.errors_text(), INVALID_REQUEST
+    if not request.check_auth():
         return None, FORBIDDEN
 
-    if req.method == 'online_score':
-        score_req = OnlineScoreRequest(request['body']['arguments'], ctx, req)
-        resp, code = score_req.getresult()
-        return resp, code
-    elif req.method == 'clients_interests':
-        clients_req = ClientsInterestsRequest(request['body']['arguments'], ctx)
-        resp, code = clients_req.getresult()
-        return resp, code
+    api_method_class = {
+        'online_score': OnlineScoreRequest,
+        'clients_interests': ClientsInterestsRequest
+    }
 
-    return None, BAD_REQUEST
+    if request.method not in api_method_class:
+        return None, NOT_FOUND
+
+    handler = MethodRequestHandler(api_method_class[request.method],
+                                   request, ctx)
+    return handler.handle()
 
 
 class MainHTTPHandler(BaseHTTPRequestHandler):
@@ -431,13 +469,15 @@ class MainHTTPHandler(BaseHTTPRequestHandler):
         self.wfile.write(json.dumps(r))
         return
 
+
 if __name__ == "__main__":
     op = OptionParser()
     op.add_option("-p", "--port", action="store", type=int, default=8080)
     op.add_option("-l", "--log", action="store", default=None)
     (opts, args) = op.parse_args()
     logging.basicConfig(filename=opts.log, level=logging.INFO,
-                        format='[%(asctime)s] %(levelname).1s %(message)s', datefmt='%Y.%m.%d %H:%M:%S')
+                        format='[%(asctime)s] %(levelname).1s %(message)s',
+                        datefmt='%Y.%m.%d %H:%M:%S')
     server = HTTPServer(("localhost", opts.port), MainHTTPHandler)
     logging.info("Starting server at %s" % opts.port)
     try:
