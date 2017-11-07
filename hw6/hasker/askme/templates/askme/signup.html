@@ -1,14 +1,48 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>Sign Up</title>
-</head>
-<body>
-<form action="" method="post">
-    {% csrf_token %}
-    {{ form.as_p }}
-    <input type="submit" value="sign up">
-</form>
-</body>
-</html>
+{% extends "askme/base.html" %}
+
+{% block content %}
+    <h2>Sign Up</h2><br>
+    <form action="" method="post">
+        {% csrf_token %}
+        <div class="form-group row h5">
+            <label for="" class="col-sm-3 col-form-label">Login</label>
+            <div class="col-sm-4">
+                <input name="username"
+                       id="{{ form.username.id_for_label }}"
+                       type="text"
+                       class="form-control"
+                       placeholder="Login">
+            </div>
+        </div>
+        <div class="form-group row h5">
+            <label for="" class="col-sm-3 col-form-label">Email</label>
+            <div class="col-sm-4">
+                <input name="email" type="email" class="form-control" placeholder="Email">
+            </div>
+        </div>
+        <div class="form-group row h5">
+            <label for="" class="col-sm-3 col-form-label">Password</label>
+            <div class="col-sm-4">
+                <input name="password" type="password" class="form-control" placeholder="Password">
+            </div>
+        </div>
+        <div class="form-group row h5">
+            <label for="" class="col-sm-3 col-form-label">Repeat password</label>
+            <div class="col-sm-4">
+                <input name="password_repeat" type="password" class="form-control" placeholder="Repeat password">
+            </div>
+        </div>
+        <div class="form-group rЛow h5">
+            <label for="" class="col-sm-3 col-form-label">Avatar</label>
+            <div class="col-sm-4">
+                <input name="filename" type="file" class="form-control-file" placeholder="Avatar">
+            </div>
+        </div>
+        <div class="row">
+            <div class="col-sm-3"></div>
+            <div class="col-sm-4">
+                <button type="submit" class="btn btn-secondary">Enter</button>
+            </div>
+        </div>
+    </form>
+{% endblock %}

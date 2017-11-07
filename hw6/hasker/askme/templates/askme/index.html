@@ -1,7 +1,7 @@
 {% extends "askme/base.html" %}
 
 {% block content %}
-    <h4>New questions | Hot questions</h4>
+    <span class="h2">New questions |</span><span class="h2 text-muted">Hot questions</span>
     <hr>
     {% for question in questions %}
         {% include "askme/answer_row.html" with question=question %}
