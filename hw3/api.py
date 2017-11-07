@@ -349,6 +349,7 @@ class OnlineScoreRequest(Request):
                 value2 = getattr(self, fieldname2)
                 if value1 and value2:
                     valid_pair_exists = True
+                    break
             if not valid_pair_exists:
                 self.invalid_fieldnames.append(str(self._valid_pairs[0]))
             self.clean_done = True
