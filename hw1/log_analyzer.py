@@ -62,77 +62,79 @@ def log_was_analyzed(fn):
     return os.path.isfile(os.path.join(config["REPORT_DIR"], fn_report))
 
 
-def log_is_gzip(fn_log):
-    _, gz_part = log_pattern.search(fn_log).groups()
-    return gz_part is not None
+def ilog_line(fn_log_path):
+    _, gz_part = log_pattern.search(fn_log_path).groups()
+    if gz_part:
+        fd = gzip.open(fn_log_path)
+    else:
+        fd = open(fn_log_path)
+
+    for line in fd:
+        yield line
+    fd.close()
 
 
-def extract_gzip(fn_gz_path):
-    fn_plain_path = fn_gz_path.rstrip('.gz')
-    with gzip.open(fn_gz_path, 'rb') as f_in, \
-            open(fn_plain_path, 'wb') as f_out:
-        shutil.copyfileobj(f_in, f_out)
-    return fn_plain_path
-
-
-def parse_log(fn_log):
-    url_stat = defaultdict(lambda: {"rows": [], "stat": {}})
-    size = 100000
-    with open(fn_log) as f:
-        i = 0
-        c = 0
-        for line in f:
-            row = map(''.join, re.findall(r'\"(.*?)\"|\[(.*?)\]|(\S+)', line))
-            try:
-                url = row[4].split(' ')[1]   # GET /req?a=1
-            except IndexError:
-                url = row[4]                 # "0"
-
-            url_stat[url]["rows"].append(row)
-
-            i += 1
-            if i == size:
-                c += 1
-                i = 0
-                print "Rows processed ", c * size
-    return url_stat
-
-
-def calculate_stat(url_stat):
-    total_time_sum = 0
-    total_count = 0
-    for url, data in url_stat.items():
-        # count
-        count = len(data["rows"])
-        data["stat"]["count"] = count
-        total_count += count
-
-        # time
-        time_sum = 0
-        time_max = 0
-        for row in data["rows"]:
+def ilog_parsed_line(fn_log_path):
+    for line in ilog_line(fn_log_path):
+        row = map(''.join, re.findall(r'\"(.*?)\"|\[(.*?)\]|(\S+)', line))
+        try:
+            url = row[4].split(' ')[1]  # GET /req?a=1
+        except IndexError:
+            url = row[4]                # "0"
+        try:
             time = float(row[12])
-            time_sum += time
-            if time > time_max:
-                time_max = time
-        data["stat"]["time_sum"] = time_sum
-        data["stat"]["time_max"] = time_max
-        data["stat"]["time_avg"] = time_sum / count
-        total_time_sum += time_sum
+        except ValueError:
+            # bad log line. Skip
+            continue
+        yield url, time
 
-        # url
-        data["stat"]["url"] = url
 
-    for url, data in url_stat.items():
-        data["stat"]["time_perc"] = (
-            (data["stat"]["time_sum"] / total_time_sum) * 100
-        )
-        data["stat"]["count_perc"] = (
-            (data["stat"]["count"] / total_count) * 100
-        )
-        data["stat"]["time_med"] = (
-            (data["stat"]["time_sum"] / total_time_sum) * 100
-        )
+def median(lst):
+    size = len(lst)
+    if size == 0:
+        return 0
+    elif size % 2 == 1:
+        return lst[size // 2]
+    else:
+        before_m = lst[(size/2) - 1]
+        after_m = lst[(size/2)]
+        return (before_m + after_m) / 2
+
+
+def calculate_stat(fn_log_path):
+    url_stat = defaultdict(lambda: {"count": 0,
+                                    "count_perc": 0,
+                                    "time_each": [],
+                                    "time_sum": 0,
+                                    "time_max": 0,
+                                    "time_avg": 0,
+                                    "time_med": 0,
+                                    "time_perc": 0})
+    total_count = 0
+    total_time_sum = 0
+    i = 0
+    for parsed in ilog_parsed_line(fn_log_path):
+        url, time = parsed
+        stat = url_stat[url]
+        stat["count"] += 1
+        stat["time_each"].append(time)
+        stat["time_sum"] += time
+        if time > stat["time_max"]:
+            stat["time_max"] = time
+        total_count += 1
+        total_time_sum += time
+
+        i += 1
+        if i % 10000 == 0:
+            print 'Rows processed', i
+
+    for stat in url_stat.values():
+        stat["count_perc"] = 100 * float(stat["count"]) / total_count
+        stat["time_perc"] = 100 * stat["time_sum"] / total_time_sum
+        stat["time_avg"] = stat["time_sum"] / stat["count"]
+        stat["time_med"] = median(stat["time_each"])
+        stat.pop("time_each")   # remove unnecessary data
+    return url_stat
 
 
 def generate_report(tpl_path, fn_report_path, url_stat_list):
@@ -156,18 +158,15 @@ def main():
         exit()
 
     fn_log_path = os.path.join(config["LOG_DIR"], fn_log)
-    if log_is_gzip(fn_log):
-        print "Extract log ", fn_log_path
-        fn_log_path = extract_gzip(fn_log_path)
-
     print "Analyze ", fn_log_path
 
-    url_stat = parse_log(fn_log_path)
-
-    calculate_stat(url_stat)
+    # read file line by line and calculate statistics
+    url_stat = calculate_stat(fn_log_path)
 
     # generate statistics list
-    url_stat_list = [url_stat[url]["stat"] for url in url_stat]
+    for url, stat in url_stat.items():
+        stat["url"] = url
+    url_stat_list = url_stat.values()
     url_stat_list.sort(key=lambda x: -x["time_sum"])
 
     fn_report = get_report_name_for_log(fn_log)
