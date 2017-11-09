@@ -6,7 +6,11 @@ class MultiTagField(forms.Field):
     def to_python(self, value):
         if not value:
             return []
-        return [s.strip() for s in value.split(',')]
+        if ',' in value:
+            sep = ','
+        else:
+            sep = ' '
+        return [s.strip() for s in value.split(sep)]
 
 
 class QuestionForm(forms.Form):

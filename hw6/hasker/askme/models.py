@@ -1,15 +1,13 @@
 # -*- coding: utf-8 -*-
 from __future__ import unicode_literals
 
-from django.db import models
-from django.contrib.auth.models import User
+from django.db import models, transaction
+from django.contrib.auth import get_user_model
 from django.utils.text import slugify
 from django.forms import ModelForm
 
 
-class UserProfile(models.Model):
-    user = models.OneToOneField(User, on_delete=models.CASCADE)
-    photo = models.ImageField(upload_to='photo/', null=True, blank=True)
+User = get_user_model()
 
 
 class Tag(models.Model):
@@ -32,6 +30,7 @@ class Question(models.Model):
             # todo решить проблему одинаковых title
         super(Question, self).save(*args, **kwargs)
 
+    @transaction.atomic
     def vote_up(self, user_id):
         vote = self.uservote_set.filter(user_id=user_id).first()
         if not vote:
@@ -39,6 +38,7 @@ class Question(models.Model):
         elif vote and vote.value < 0:
             self._revert_vote(vote, 1)
 
+    @transaction.atomic
     def vote_down(self, user_id):
         vote = self.uservote_set.filter(user_id=user_id).first()
         if not vote:
@@ -64,6 +64,7 @@ class Answer(models.Model):
     user = models.ForeignKey(User)
     votes = models.IntegerField(default=0)
 
+    @transaction.atomic
     def vote_up(self, user_id):
         vote = self.uservote_set.filter(user_id=user_id).first()
         if not vote:
@@ -71,6 +72,7 @@ class Answer(models.Model):
         elif vote and vote.value < 0:
             self._revert_vote(vote, 1)
 
+    @transaction.atomic
     def vote_down(self, user_id):
         vote = self.uservote_set.filter(user_id=user_id).first()
         if not vote:
@@ -93,29 +95,7 @@ class Answer(models.Model):
 
 
 class UserVote(models.Model):
-    # QUESTION = 1
-    # ANSWER = 2
-    # SUBJECT_CHOICES = (
-    #     (QUESTION, 'Question'),
-    #     (ANSWER, 'Answer')
-    # )
-    # subject = models.SmallIntegerField(choices=SUBJECT_CHOICES)
-
     user = models.ForeignKey(User)
     value = models.IntegerField()  # -1 or 1
     answer = models.ForeignKey(Answer, blank=True, null=True, on_delete=models.CASCADE)
     question = models.ForeignKey(Question, blank=True, null=True, on_delete=models.CASCADE)
-
-    # @classmethod
-    # def vote_up_subject(cls, subject, user_id):
-    #     # subject - answer or question
-    #     vote = cls.objects.filter(user_id=user_id, answer_id=subject.pk).first()
-    #     if not vote:
-    #         cls.objects.create(user_id=user_id, answer_id=subject.pk, value=1)
-    #         subject.votes += 1
-    #         subject.save()
-    #     elif vote and vote.value < 0:
-    #         vote.delete()
-    #         subject.votes -= 1
-    #         subject.save()
-

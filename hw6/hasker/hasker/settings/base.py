@@ -6,6 +6,8 @@ SECRET_KEY = '@_-hxgbr!@tcx7_t@jbk+heq=8jalhkd89j8dh!_d+$o%9@di1'
 
 ALLOWED_HOSTS = []
 
+AUTH_USER_MODEL = 'hasker_user.User'
+
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
@@ -15,6 +17,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
 
     'askme.apps.AskmeConfig',
+    'hasker_user.apps.HaskerUserConfig',
 ]
 
 MIDDLEWARE = [

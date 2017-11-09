@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import unicode_literals
 
+from django.db import transaction
 from django.shortcuts import render, get_object_or_404
 from django.http import HttpResponse, HttpResponseRedirect, HttpResponseBadRequest
 from django.urls import reverse
@@ -15,7 +16,6 @@ from .models import Question, Tag, Answer
 
 @require_safe
 def index(request):
-    # todo пагинация
     questions_list = Question.objects.all().order_by('-date_pub', '-votes')
     paginator = Paginator(questions_list, 20)
 
@@ -42,15 +42,15 @@ def ask(request):
                 'text': cd['text'],
                 'user_id': request.user.pk
             }
-            question = Question.objects.create(**quest_params)
-
-            if cd.get('tags'):
-                tag_names = cd['tags']
-                tags = []
-                for tag_name in tag_names:
-                    tag, _ = Tag.objects.get_or_create(name=tag_name)
-                    tags.append(tag)
-                question.tags.add(*tags)
+            with transaction.atomic():
+                question = Question.objects.create(**quest_params)
+                if cd.get('tags'):
+                    tag_names = cd['tags']
+                    tags = []
+                    for tag_name in tag_names:
+                        tag, _ = Tag.objects.get_or_create(name=tag_name)
+                        tags.append(tag)
+                    question.tags.add(*tags)
             return HttpResponseRedirect('/')
     else:
         # Создаем пустую форму Question и отдаем ее в шаблон
@@ -127,7 +127,10 @@ def search_tag(request, tag_name):
 
 @require_safe
 def search(request):
-    query = request.GET.get('q')
+    query = request.GET.get('q') or ''
+    if len(query) > 100:
+        # query too long. Skip filter
+        query = ''
     return render(request, 'askme/search.html', {
         'questions': [],
         'head_title': 'Search results'

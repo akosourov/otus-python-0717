@@ -4,6 +4,7 @@ from __future__ import unicode_literals
 from django.test import TestCase, Client
 from django.contrib.auth.models import User
 from django.urls import reverse
+
 from askme.models import Question
 
 
@@ -12,7 +13,7 @@ def create_test_user():
 
 
 class VotingTestCase(TestCase):
-    """Голосвание за вопрос и ответ"""
+    """Голосование за вопрос и ответ"""
 
     def setUp(self):
         self.user = create_test_user()
