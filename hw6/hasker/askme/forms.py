@@ -6,6 +6,7 @@ class MultiTagField(forms.Field):
     def to_python(self, value):
         if not value:
             return []
+        value = value.strip()
         if ',' in value:
             sep = ','
         else:
@@ -29,7 +30,7 @@ class UserProfileForm(forms.Form):
     username = forms.CharField()
     email = forms.EmailField()
     password = forms.CharField(widget=forms.PasswordInput)
-    # todo аватарку
+    photo = forms.ImageField()
 
 
 class LoginForm(forms.Form):

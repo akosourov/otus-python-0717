@@ -6,4 +6,5 @@
     {% for question in questions %}
         {% include "askme/answer_row.html" with question=question %}
     {% endfor %}
+    {% include "askme/paging.html" with list_page=questions %}
 {% endblock content %}

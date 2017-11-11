@@ -15,6 +15,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'django.contrib.postgres',   # for full text search
 
     'askme.apps.AskmeConfig',
     'hasker_user.apps.HaskerUserConfig',

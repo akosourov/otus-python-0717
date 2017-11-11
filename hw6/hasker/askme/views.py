@@ -7,26 +7,21 @@ from django.http import HttpResponse, HttpResponseRedirect, HttpResponseBadReque
 from django.urls import reverse
 from django.core.paginator import Paginator, PageNotAnInteger, EmptyPage
 from django.views.decorators.http import require_POST, require_safe, require_http_methods
-from django.contrib.auth import authenticate, login, logout
-from django.contrib.auth.models import User
+from django.contrib.auth import authenticate, login, logout, get_user_model
+from django.contrib.postgres.search import SearchVector
 
 from .forms import QuestionForm, UserProfileForm, LoginForm
 from .models import Question, Tag, Answer
 
 
+User = get_user_model()
+
+
 @require_safe
 def index(request):
     questions_list = Question.objects.all().order_by('-date_pub', '-votes')
-    paginator = Paginator(questions_list, 20)
-
     page = request.GET.get('page')
-    try:
-        questions = paginator.page(page)
-    except PageNotAnInteger:
-        questions = paginator.page(1)
-    except EmptyPage:
-        questions = paginator.page(paginator.num_pages)
-
+    questions = paginate(questions_list, page)
     return render(request, 'askme/index.html', {
         'questions': questions
     })
@@ -74,15 +69,8 @@ def question_detail(request, slug):
                 return HttpResponseRedirect(reverse('askme:question', args=(slug,)))
 
     answer_list = question.answer_set.all().order_by('-votes')
-    paginator = Paginator(answer_list, 30)
-
     page = request.GET.get('page')
-    try:
-        answers = paginator.page(page)
-    except PageNotAnInteger:
-        answers = paginator.page(1)
-    except EmptyPage:
-        answers = paginator.page(paginator.num_pages)
+    answers = paginate(answer_list, page, 30)
     return render(request, 'askme/question.html', {
         'question': question,
         'answers': answers
@@ -92,16 +80,17 @@ def question_detail(request, slug):
 def signup(request):
     if request.method == 'POST':
         # Создание пользователя
-        user_form = UserProfileForm(request.POST)
+        user_form = UserProfileForm(request.POST, request.FILES)
         if user_form.is_valid():
             cd = user_form.cleaned_data
             if User.objects.filter(username=cd['username']).exists():
                 # todo Ошибку в форму
                 return HttpResponse('Пользователь с таким имененм уже существует')
 
-            user = User.objects.create_user(username=cd['username'],
-                                            email=cd['email'],
-                                            password=cd['password'])
+            User.objects.create_user(username=cd['username'],
+                                     email=cd['email'],
+                                     password=cd['password'],
+                                     photo=cd['photo'])
 
             # todo UserProfile с фото
             user = authenticate(request, username=cd['username'], password=cd['password'])
@@ -129,12 +118,25 @@ def search_tag(request, tag_name):
 def search(request):
     query = request.GET.get('q') or ''
     if len(query) > 100:
-        # query too long. Skip filter
-        query = ''
+        # query too long. Return nothing
+        questions_list = []
+    else:
+        questions_list = Question.objects.annotate(
+            search=SearchVector('title', 'text')
+        ).filter(search=query).all().order_by('-date_pub', '-votes')
+    page = request.GET.get('page')
+    questions = paginate(questions_list, page)
     return render(request, 'askme/search.html', {
-        'questions': [],
+        'questions': questions,
         'head_title': 'Search results'
     })
+
+
+@require_http_methods('POST, GET')
+def settings(request):
+    if not request.user.is_authenticated:
+        return HttpResponseRedirect(reverse('askme:index'))
+    return render(request, 'askme/../../hasker_user/templates/hasker_user/templates/hasker_user/user_settings.html', {})
 
 
 @require_http_methods('POST, GET')
@@ -175,8 +177,7 @@ def answer_vote(request, answer_id, to_up):
     else:
         answer.vote_down(user_id)
 
-    # Возвращаем общее кол-во голосов
-    return HttpResponse(answer.votes)
+    return HttpResponse(answer.votes)  # total votes
 
 
 @require_POST
@@ -228,3 +229,14 @@ def set_correct_answer(request, answer_id):
     answer.question.correct_answer = answer
     answer.question.save()
     return HttpResponse(answer.question.correct_answer_id)
+
+
+def paginate(entity_list, page, per_page=20):
+    paginator = Paginator(entity_list, per_page)
+    try:
+        entities = paginator.page(page)
+    except PageNotAnInteger:
+        entities = paginator.page(1)
+    except EmptyPage:
+        entities = paginator.page(paginator.num_pages)
+    return entities
