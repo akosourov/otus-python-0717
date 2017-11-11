@@ -120,6 +120,7 @@ GENDERS = {
 
 class Field(object):
     __metaclass__ = abc.ABCMeta
+    empty_values = (None,)
 
     def __init__(self, required=True, nullable=False):
         self.required = required
@@ -130,31 +131,23 @@ class Field(object):
     def parse_validate(self, value):
         """Try parse and then validate or raise ValueError"""
 
-    @abc.abstractproperty
-    def empty_values(self):
-        """Get tuple with empty allowable values"""
-
 
 class CharField(Field):
+    empty_values = ('', None)
+
     def parse_validate(self, value):
         if not isinstance(value, (str, unicode)):
             raise ValueError("CharField must be a string")
         return value
 
-    @property
-    def empty_values(self):
-        return ('', None)
-
 
 class ArgumentsField(Field):
+    empty_values = ({}, None)
+
     def parse_validate(self, value):
         if not isinstance(value, dict):
             raise ValueError("ArgumentsField must be a dict")
         return value
-
-    @property
-    def empty_values(self):
-        return ({}, None)
 
 
 class EmailField(CharField):
@@ -166,6 +159,8 @@ class EmailField(CharField):
     
 
 class PhoneField(Field):
+    empty_values = ('', 0, None)
+
     def parse_validate(self, value):
         if not isinstance(value, (str, unicode, int, long)):
             raise ValueError("PhoneField must be a string or integer")
@@ -173,13 +168,11 @@ class PhoneField(Field):
         if not (len(value) == 11 and value.startswith('7') and value.isdigit()):
             raise ValueError("PhoneField must contains 7 with 11 character length")
         return value
-
-    @property
-    def empty_values(self):
-        return ('', 0, None)
         
 
 class DateField(Field):
+    empty_values = ('', None)
+
     def parse_validate(self, value):
         if not isinstance(value, (str, unicode)):
             raise ValueError("DateField must be a string")
@@ -190,10 +183,6 @@ class DateField(Field):
             raise ValueError("DateField does not match %d.%m.%Y")
         return dt.date()
 
-    @property
-    def empty_values(self):
-        return ('', None)
-
 
 class BirthDayField(DateField):
     def parse_validate(self, value):
@@ -203,17 +192,6 @@ class BirthDayField(DateField):
             raise ValueError("BirthDayField must be in [today-70 ... today]")
         return date
 
-    def validate_value(self, value):
-        if not self.required and not value:
-            return True
-        if super(BirthDayField, self).validate_value(value):
-            date = self.parse_value(value)
-            days = (datetime.datetime.today() - date).days
-            years = days/float(365)
-            if 0 <= years <= 70:
-                return True
-        return False
-
 
 class GenderField(Field):
     def parse_validate(self, value):
@@ -222,20 +200,14 @@ class GenderField(Field):
             raise ValueError("GenderField must be %s" % GENDERS.keys())
         return gender
 
-    @property
-    def empty_values(self):
-        return (None,)
-
 
 class ClientIDsField(Field):
+    empty_values = ([], None)
+
     def parse_validate(self, value):
         if not (isinstance(value, list) and all(isinstance(c, int) for c in value)):
             raise ValueError("ClientIDsField must be a list of integers")
         return value
-
-    @property
-    def empty_values(self):
-        return ([], None)
 
 
 class RequestMeta(type):
@@ -365,45 +337,56 @@ def check_auth(request):
     return False
 
 
-class MethodRequestHandler(object):
-    """Common place to put your request method handler"""
+class MethodHandler(object):
+    __metaclass__ = abc.ABCMeta
 
-    def __init__(self, cls_request, method_request, ctx):
-        assert cls_request in (OnlineScoreRequest, ClientsInterestsRequest)
+    def __init__(self, method_request, ctx):
         assert isinstance(method_request, MethodRequest)
         assert isinstance(ctx, dict)
+        assert issubclass(self.cls_request, Request)
 
         self.method_request = method_request
         self.ctx = ctx
-
-        if cls_request == OnlineScoreRequest:
-            self.target_handler = self.handler_OnlineScoreRequest
-        elif cls_request == ClientsInterestsRequest:
-            self.target_handler = self.handler_ClientsInterestsRequest
+        self.request = self.cls_request(method_request.arguments)
 
     def handle(self):
-        return self.target_handler()
+        if not self.request.is_valid():
+            return self.request.errors_text(), INVALID_REQUEST
+        return self.process_request()
 
-    def handler_OnlineScoreRequest(self):
-        score_request = OnlineScoreRequest(self.method_request.arguments)
-        if not score_request.is_valid():
-            return score_request.errors_text(), INVALID_REQUEST
-        self.ctx['has'] = score_request.not_empty_fieldnames
+    @abc.abstractproperty
+    def cls_request(self):
+        """Get request class"""
+
+    @abc.abstractmethod
+    def process_request(self):
+        """Process request and return response and status code"""
+
+
+class MethodHandlerOnlineScore(MethodHandler):
+    @property
+    def cls_request(self):
+        return OnlineScoreRequest
+
+    def process_request(self):
+        self.ctx['has'] = self.request.not_empty_fieldnames
         if self.method_request.is_admin:
             return {'score': 42}, OK
         else:
             return {'score': random.randrange(0, 100)}, OK
 
-    def handler_ClientsInterestsRequest(self):
-        interests_request = ClientsInterestsRequest(self.method_request.arguments)
-        if not interests_request.is_valid():
-            return interests_request.errors_text(), INVALID_REQUEST
 
+class MethodHandlerClientsInterests(MethodHandler):
+    @property
+    def cls_request(self):
+        return ClientsInterestsRequest
+
+    def process_request(self):
         interests = ['coding', 'sport', 'tv', 'books', 'education']
 
         res = {c: random.sample(interests, random.randint(1, len(interests)))
-               for c in interests_request.client_ids}
-        self.ctx['nclients'] = len(interests_request.client_ids)
+               for c in self.request.client_ids}
+        self.ctx['nclients'] = len(self.request.client_ids)
         return res, OK
 
 
@@ -415,17 +398,15 @@ def method_handler(request_raw, ctx):
     if not request.check_auth():
         return None, FORBIDDEN
 
-    api_method_class = {
-        'online_score': OnlineScoreRequest,
-        'clients_interests': ClientsInterestsRequest
+    api_handler_class = {
+        'online_score': MethodHandlerOnlineScore,
+        'clients_interests': MethodHandlerClientsInterests
     }
 
-    if request.method not in api_method_class:
+    if request.method not in api_handler_class:
         return None, NOT_FOUND
 
-    handler = MethodRequestHandler(api_method_class[request.method],
-                                   request, ctx)
-    return handler.handle()
+    return api_handler_class[request.method](request, ctx).handle()
 
 
 class MainHTTPHandler(BaseHTTPRequestHandler):
