@@ -7,10 +7,10 @@ from django.http import HttpResponse, HttpResponseRedirect, HttpResponseBadReque
 from django.urls import reverse
 from django.core.paginator import Paginator, PageNotAnInteger, EmptyPage
 from django.views.decorators.http import require_POST, require_safe, require_http_methods
-from django.contrib.auth import authenticate, login, logout, get_user_model
+from django.contrib.auth import get_user_model
 from django.contrib.postgres.search import SearchVector
 
-from .forms import QuestionForm, UserProfileForm, LoginForm
+from .forms import QuestionForm
 from .models import Question, Tag, Answer
 
 
@@ -77,31 +77,6 @@ def question_detail(request, slug):
     })
 
 
-def signup(request):
-    if request.method == 'POST':
-        # Создание пользователя
-        user_form = UserProfileForm(request.POST, request.FILES)
-        if user_form.is_valid():
-            cd = user_form.cleaned_data
-            if User.objects.filter(username=cd['username']).exists():
-                # todo Ошибку в форму
-                return HttpResponse('Пользователь с таким имененм уже существует')
-
-            User.objects.create_user(username=cd['username'],
-                                     email=cd['email'],
-                                     password=cd['password'],
-                                     photo=cd['photo'])
-
-            # todo UserProfile с фото
-            user = authenticate(request, username=cd['username'], password=cd['password'])
-            if user is not None:
-                login(request, user)
-            return HttpResponseRedirect(reverse('askme:index'))
-    else:
-        user_form = UserProfileForm()
-    return render(request, 'askme/signup.html', {'form': user_form})
-
-
 def search_tag(request, tag_name):
     questions = []
     tag = Tag.objects.filter(name=tag_name).first()
@@ -130,38 +105,6 @@ def search(request):
         'questions': questions,
         'head_title': 'Search results'
     })
-
-
-@require_http_methods('POST, GET')
-def settings(request):
-    if not request.user.is_authenticated:
-        return HttpResponseRedirect(reverse('askme:index'))
-    return render(request, 'askme/../../hasker_user/templates/hasker_user/templates/hasker_user/user_settings.html', {})
-
-
-@require_http_methods('POST, GET')
-def login_view(request):
-    if request.method == 'POST':
-        login_form = LoginForm(request.POST)
-        if login_form.is_valid():
-            cd = login_form.cleaned_data
-            user = authenticate(request, username=cd['username'], password=cd['password'])
-            if user:
-                login(request, user)
-                return HttpResponseRedirect(reverse('askme:index'))
-            else:
-                login_form.errors['password'] = ['Incorrect password']
-    else:
-        login_form = LoginForm()
-    return render(request, 'askme/login.html', {
-        'form': login_form,
-        'user': request.user
-    })
-
-
-def logout_view(request):
-    logout(request)
-    return HttpResponseRedirect(reverse('askme:index'))
 
 
 def answer_vote(request, answer_id, to_up):

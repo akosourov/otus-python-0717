@@ -1,7 +1,7 @@
 {% extends "askme/base.html" %}
 
 {% block content %}
-    <h2>Settings</h2><br>
+    <h2>Sign Up</h2><br>
     <form action="" enctype="multipart/form-data" method="post">
         {% csrf_token %}
 
@@ -11,8 +11,7 @@
                 <input name="username"
                        id="{{ form.username.id_for_label }}"
                        type="text"
-                       readonly
-                       class="form-control-plaintext {% if form.username.errors %} is-invalid {% endif %}"
+                       class="form-control {% if form.username.errors %} is-invalid {% endif %}"
                        value="{{ form.username.value|default:'' }}"
                        placeholder="Login">
                 {% if form.username.errors %}
@@ -34,6 +33,30 @@
             </div>
         </div>
         <div class="form-group row h5">
+            <label for="" class="col-sm-3 col-form-label">Password</label>
+            <div class="col-sm-4">
+                <input name="password"
+                       type="password"
+                       class="form-control {% if form.password.errors %} is-invalid {% endif %}"
+                       placeholder="Password">
+                {% if form.password.errors %}
+                    <div class="invalid-feedback">{{ form.password.errors.0 }}</div>
+                {% endif %}
+            </div>
+        </div>
+        <div class="form-group row h5">
+            <label for="" class="col-sm-3 col-form-label">Repeat password</label>
+            <div class="col-sm-4">
+                <input name="password_confirm"
+                       type="password"
+                       class="form-control {% if form.password_confirm.errors %} is-invalid {% endif %}"
+                       placeholder="Repeat password">
+                {% if form.password_confirm.errors %}
+                    <div class="invalid-feedback">{{ form.password_confirm.errors.0 }}</div>
+                {% endif %}
+            </div>
+        </div>
+        <div class="form-group row h5">
             <label for="" class="col-sm-3 col-form-label">Your photo</label>
             <div class="col-sm-4">
                 <input name="photo"
@@ -43,7 +66,6 @@
                 {% if form.photo.errors %}
                     <div class="invalid-feedback">{{ form.photo.errors.0 }}</div>
                 {% endif %}
-                <img src="{{ photo_url }}" alt="">
             </div>
         </div>
         <div class="row">
@@ -53,4 +75,4 @@
             </div>
         </div>
     </form>
-{% endblock content %}
+{% endblock %}

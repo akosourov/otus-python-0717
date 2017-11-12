@@ -28,23 +28,22 @@
 
             {% if user.is_authenticated %}
                 <div>
+                    <img src="{{ user.photo_url }}" alt="" style="height: 50px">
                     <a href="{% url 'hasker_user:settings' %}">{{ user.username }}</a>
-                    <a href="{% url 'askme:logout' %}">
-                        <img src="{% static 'askme/exit.png' %}" alt="">
+                    <a href="{% url 'hasker_user:logout' %}">
+                        <img src="{% static 'askme/img/exit.png' %}" alt="">
                     </a>
                 </div>
             {% else %}
-                <a href="{% url 'askme:login' %}">Log In</a><br>
-                <a class="btn btn-primary" href="{% url 'askme:signup' %}">Sign Up</a>
+                <a href="{% url 'hasker_user:login' %}">Log In</a><br>
+                <a class="btn btn-primary" href="{% url 'hasker_user:signup' %}">Sign Up</a>
             {% endif %}
         </nav>
         <hr>
 
         <div class="row">
             <div class="col-sm-10">
-                {% block content %}
-                    <h1>Контент</h1>
-                {% endblock content %}
+                {% block content %}{% endblock content %}
             </div>
             <div class="col">
                 {% if user.is_authenticated and not hide_ask_btn %}

@@ -1,0 +1,41 @@
+{% extends "askme/base.html" %}
+
+{% block content %}
+    <h2>Log In</h2>
+    <form action="" method="post">
+        {% csrf_token %}
+
+        <div class="form-group row h5">
+            <label for="{{ form.username.id_for_label }}" class="col-sm-3 col-form-label">Login</label>
+            <div class="col-sm-4">
+                <input name="username"
+                       id="{{ form.username.id_for_label }}"
+                       type="text"
+                       class="form-control {% if form.username.errors %} is-invalid {% endif %}"
+                       value="{{ form.username.value|default:'' }}"
+                       placeholder="Login">
+                {% if form.username.errors %}
+                    <div class="invalid-feedback">{{ form.username.errors.0 }}</div>
+                {% endif %}
+            </div>
+        </div>
+        <div class="form-group row h5">
+            <label for="" class="col-sm-3 col-form-label">Password</label>
+            <div class="col-sm-4">
+                <input name="password"
+                       type="password"
+                       class="form-control {% if form.password.errors %} is-invalid {% endif %}"
+                       placeholder="Password">
+                {% if form.password.errors %}
+                    <div class="invalid-feedback">{{ form.password.errors.0 }}</div>
+                {% endif %}
+            </div>
+        </div>
+        <div class="row">
+            <div class="col-sm-3"></div>
+            <div class="col-sm-4">
+                <button type="submit" class="btn btn-secondary">Enter</button>
+            </div>
+        </div>
+    </form>
+{% endblock content %}
