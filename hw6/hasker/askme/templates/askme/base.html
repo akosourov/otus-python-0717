@@ -13,32 +13,35 @@
 <body>
     <div class="container">
 
-        <nav class="navbar navbar-expand-lg navbar-light bg-light justify-content-between">
+        <nav class="navbar navbar-light bg-light">
             <a class="navbar-brand" href="{% url 'askme:index' %}">Hasker</a>
-
-            <form action="{% url 'askme:search' %}" method="get" class="form-inline my-2 my-lg-0" accept-charset="utf-8">
-                <input class="form-control mr-sm-2"
-                       type="text"
-                       placeholder="Search or tag:Python"
-                       aria-label="Search"
-                       name="q"
-                       value="{% if search_query %} {{ search_query }} {% endif %}">
-                <button class="btn btn-outline-success my-2 my-sm-0" type="submit">Search</button>
+            <form action="{% url 'askme:search' %}" method="get" class="form-inline" accept-charset="utf-8">
+                <div class="input-group">
+                    <button class="input-group-addon" type="submit">Search</button>
+                    <input class="form-control"
+                           type="text"
+                           aria-label="Search"
+                           name="q"
+                           placeholder="Text or tag name..."
+                           value="{% if search_query %} {{ search_query }} {% endif %}">
+                </div>
             </form>
-
             {% if user.is_authenticated %}
                 <div>
-                    <img src="{{ user.photo_url }}" alt="" style="height: 50px">
+                    <img src="{{ user.photo_url }}" alt="" height="50px">
                     <a href="{% url 'hasker_user:settings' %}">{{ user.username }}</a>
                     <a href="{% url 'hasker_user:logout' %}">
                         <img src="{% static 'askme/img/exit.png' %}" alt="">
                     </a>
                 </div>
             {% else %}
-                <a href="{% url 'hasker_user:login' %}">Log In</a><br>
-                <a class="btn btn-primary" href="{% url 'hasker_user:signup' %}">Sign Up</a>
+                <div>
+                    <a href="{% url 'hasker_user:login' %}">Log In</a>
+                    <a class="btn btn-secondary" href="{% url 'hasker_user:signup' %}" role="button">Sign Up</a>
+                </div>
             {% endif %}
         </nav>
+
         <hr>
 
         <div class="row">
@@ -47,13 +50,14 @@
             </div>
             <div class="col">
                 {% if user.is_authenticated and not hide_ask_btn %}
-                    <a class="btn btn-primary" role="button" href="{% url 'askme:ask' %}">Ask</a>
+                    <a class="btn btn-secondary btn-block" role="button" href="{% url 'askme:ask' %}">Ask</a>
                 {% endif %}
-                <h4>Trending</h4>
+                <br>
+                <h2>Trending</h2>
                 {% for top in top_questions %}
                     <p>
-                        <a class="btn btn-primary" role="button" href="{% url 'askme:question' top.slug %}">{{ top.votes }}</a>
-                        <span>{{ top.title }}</span>
+                        <a href="{% url 'askme:question' top.slug %}" class="badge badge-primary">{{ top.votes }}</a>
+                        {{ top.title }}
                     </p>
                 {% endfor %}
             </div>

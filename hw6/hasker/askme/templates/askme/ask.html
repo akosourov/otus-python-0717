@@ -1,10 +1,57 @@
 {% extends "askme/base.html" %}
 
 {% block content %}
-    <h4>Ask a question</h4>
+    <h2>Ask a question</h2>
     <form action="" method="post">
         {% csrf_token %}
-        {{ form.as_p }}
-        <button type="submit" class="btn btn-primary">Ask</button>
+
+        <div class="form-group row h5">
+            <label for="{{ form.title.id_for_label }}" class="col-sm-3 col-form-label">Title</label>
+            <div class="col-sm-4">
+                <input name="title"
+                       id="{{ form.title.id_for_label }}"
+                       type="text"
+                       class="form-control {% if form.title.errors %} is-invalid {% endif %}"
+                       value="{{ form.title.value|default:'' }}"
+                       placeholder="Title">
+                {% if form.title.errors %}
+                    <div class="invalid-feedback">{{ form.title.errors.0 }}</div>
+                {% endif %}
+            </div>
+        </div>
+        <div class="form-group row h5">
+            <label for="{{ form.text.id_for_label }}" class="col-sm-3 col-form-label">Text</label>
+            <div class="col-sm-4">
+                <textarea name="text"
+                          id="{{ form.text.id_for_label }}"
+                          class="form-control {% if form.text.errors %} is-invalid {% endif %}"
+                          placeholder="Text"
+                          rows="10">{{ form.text.value|default:'' }}</textarea>
+                {% if form.text.errors %}
+                    <div class="invalid-feedback">{{ form.text.errors.0 }}</div>
+                {% endif %}
+            </div>
+        </div>
+        <div class="form-group row h5">
+            <label for="{{ form.tags.id_for_label }}" class="col-sm-3 col-form-label">Tags</label>
+            <div class="col-sm-4">
+                <input name="tags"
+                       id="{{ form.tags.id_for_label }}"
+                       type="text"
+                       class="form-control {% if form.tags.errors %} is-invalid {% endif %}"
+                       value="{{ form.tags.value|default:'' }}"
+                       placeholder="Title">
+                {% if form.tags.errors %}
+                    <div class="invalid-feedback">{{ form.tags.errors.0 }}</div>
+                {% endif %}
+            </div>
+        </div>
+        <div class="row">
+            <div class="col-sm-3"></div>
+            <div class="col-sm-4">
+                <button type="submit" class="btn btn-secondary">Enter</button>
+            </div>
+        </div>
     </form>
+
 {% endblock %}

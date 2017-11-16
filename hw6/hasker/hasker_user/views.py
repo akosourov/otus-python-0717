@@ -74,9 +74,9 @@ def signup(request):
         if form.is_valid():
             cd = form.cleaned_data
             if User.objects.filter(username=cd['username']).exists():
-                form.username.error_messages = ['Username already exists']
+                form.errors['username'] = ['Username already exists']
             elif User.objects.filter(email=cd['email']).exists():
-                form.username.error_messages = ['Email already exists']
+                form.errors['email'] = ['Email already exists']
             else:
                 User.objects.create_user(username=cd['username'],
                                          email=cd['email'],

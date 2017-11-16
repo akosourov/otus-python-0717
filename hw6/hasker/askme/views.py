@@ -78,10 +78,13 @@ def question_detail(request, slug):
 
 
 def search_tag(request, tag_name):
-    questions = []
     tag = Tag.objects.filter(name=tag_name).first()
     if tag:
-        questions = tag.question_set.all()
+        questions_list = tag.question_set.all()
+    else:
+        questions_list = []
+    page = request.GET.get('page')
+    questions = paginate(questions_list, page)
     return render(request, 'askme/search.html', {
         'questions': questions,
         'head_title': 'Tag results',

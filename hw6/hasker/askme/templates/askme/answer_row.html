@@ -1,9 +1,9 @@
 <div class="row">
-    <div class="col">
+    <div class="col text-center">
         <h6>{{ question.votes }}</h6>
         <p>Votes</p>
     </div>
-    <div class="col">
+    <div class="col text-center">
         <h6>{{ question.answer_set.count }}</h6>
         <p>Answers</p>
     </div>
@@ -11,13 +11,13 @@
         <a href="{% url 'askme:question' question.slug %}">{{ question.title }}</a>
         <br>
         {% for tag in question.tags.all %}
-            <a class="btn btn-primary" role="button" href="{% url 'askme:search_tag' tag.name %}">{{ tag.name }}</a>
+            <a class="badge badge-primary" href="{% url 'askme:search_tag' tag.name %}">{{ tag.name }}</a>
         {% endfor %}
     </div>
     <div class="col col-sm-4">
-        <span>Avatar</span>
+        <img src="{{ user.photo_url }}" alt="" height="30px">
         <span>{{ question.user.username }}</span>
-        <p>Asked {{ question.date_pub|timesince }} ago</p>
+        <div>Asked {{ question.date_pub|timesince }} ago</div>
     </div>
 </div>
 <hr>
