@@ -1,0 +1,242 @@
+openapi: 3.0.0
+info:
+  title: Hasker API
+  version: '1.0'
+servers:
+  - url: 'http://localhost:8000/api/v1'
+    description: Local server for development
+paths:
+  /questions:
+    get:
+      summary: Returns a paginated list of questions
+      responses:
+        '200':
+          description: A JSON paginated array of questions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedQuestions'
+    post:
+      summary: Create a new question
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Question'
+      responses:
+        '201':
+          description: Created
+  '/questions/{id}':
+    parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+    get:
+      summary: Get a question by ID
+      responses:
+        '200':
+          description: A JSON representation of a question
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Question'
+        '404':
+          description: Question not found
+    put:
+      summary: Update a question by ID
+      responses:
+        '200':
+          description: A JSON representation of a question
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Question'
+        '404':
+          description: Question not found
+    delete:
+      summary: Delete a question by ID
+      responses:
+        '201':
+          description: Deleted sucessfully
+        '404':
+          description: Question not found
+  '/questions/{id}/answers':
+    parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+    get:
+      summary: Get a paginated list of related answers
+      responses:
+        '200':
+          description: List of related answers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedAnswers'
+  /trending:
+    get:
+      summary: Returns a paginated list of top questions
+      responses:
+        '200':
+          description: A JSON paginated array of top questions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedQuestions'
+  /search:
+    get:
+      summary: Returns a piginated list of questions searched by title or text
+      parameters:
+        - in: query
+          name: q
+          schema:
+            type: string
+          required: false
+      responses:
+        '200':
+          description: A JSON paginated array of questions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedQuestions'
+  /token-auth:
+    post:
+      summary: JWT token authorization
+      responses:
+        '200':
+          description: Returns token if authorization succeed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Token'
+        '400':
+          description: Bad request if authorization faild
+  /token-refresh:
+    post:
+      summary: Returns new JWT token if it is not expired
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Token'
+      responses:
+        '200':
+          description: Returns token if authorization succeed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Token'
+        '400':
+          description: Bad request if authorization faild
+  /token-verify:
+    post:
+      summary: Check JWT token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Token'
+      responses:
+        '200':
+          description: Returns token if token is valid and not exired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Token'
+        '400':
+          description: Bad request otherwise
+components:
+  schemas:
+    Question:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        title:
+          type: string
+        text:
+          type: string
+        date_pub:
+          type: string
+          format: date
+        user:
+          type: integer
+        slug:
+          type: string
+          readOnly: true
+        tags:
+          type: array
+          items:
+            type: string
+          maxItems: 3
+        votes:
+          type: integer
+        correct_answer:
+          type: boolean
+      required:
+        - title
+        - text
+    PaginatedQuestions:
+      type: object
+      properties:
+        count:
+          type: integer
+        next:
+          type: boolean
+        previous:
+          type: boolean
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Question'
+    Answers:
+      type: object
+      properties:
+        text:
+          type: string
+        date:
+          type: string
+          format: date
+        votes:
+          type: integer
+        user:
+          type: integer
+    PaginatedAnswers:
+      type: object
+      properties:
+        count:
+          type: integer
+        next:
+          type: boolean
+        previous:
+          type: boolean
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Answers'
+    Credentials:
+      type: object
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+      required:
+        - username
+        - password
+    Token:
+      type: object
+      properties:
+        token:
+          type: string
+      required:
+        - token

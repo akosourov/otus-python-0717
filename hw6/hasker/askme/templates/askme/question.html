@@ -19,7 +19,7 @@
             {% endfor %}
         </div>
         <div class="col col-md-2">
-            <img src="{{ user.photo_url }}" alt="" height="30px">
+            <img src="{{ question.user.photo_url }}" alt="" height="30px">
             <span>{{ question.user.username }}</span>
         </div>
     </div>
@@ -89,13 +89,13 @@
     var csrftoken = getCookie('csrftoken');
     var apiURL = {
         answer: {
-            up: '/api/answer/voteup/',
-            down: '/api/answer/votedown/',
-            set_correct: '/api/answer/setcorrect/'
+            up: '/api_common/answer/voteup/',
+            down: '/api_common/answer/votedown/',
+            set_correct: '/api_common/answer/setcorrect/'
         },
         question: {
-            up: '/api/question/voteup/',
-            down: '/api/question/votedown/'
+            up: '/api_common/question/voteup/',
+            down: '/api_common/question/votedown/'
         }
     };
 
