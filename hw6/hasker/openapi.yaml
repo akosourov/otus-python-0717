@@ -108,6 +108,12 @@ paths:
   /token-auth:
     post:
       summary: JWT token authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Credentials'
       responses:
         '200':
           description: Returns token if authorization succeed
