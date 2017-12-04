@@ -364,9 +364,7 @@ class MethodHandler(object):
 
 
 class MethodHandlerOnlineScore(MethodHandler):
-    @property
-    def cls_request(self):
-        return OnlineScoreRequest
+    cls_request = OnlineScoreRequest
 
     def process_request(self):
         self.ctx['has'] = self.request.not_empty_fieldnames
@@ -377,9 +375,7 @@ class MethodHandlerOnlineScore(MethodHandler):
 
 
 class MethodHandlerClientsInterests(MethodHandler):
-    @property
-    def cls_request(self):
-        return ClientsInterestsRequest
+    cls_request = ClientsInterestsRequest
 
     def process_request(self):
         interests = ['coding', 'sport', 'tv', 'books', 'education']
